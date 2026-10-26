@@ -3,7 +3,7 @@
 [![Codecov test coverage](https://codecov.io/gh/DyfanJones/adorn/graph/badge.svg)](https://app.codecov.io/gh/DyfanJones/adorn)
 <!-- badges: end -->
 
-# adorn
+# adorn <img src="man/figures/logo.png" align="right" height="139" alt="adorn hex sticker" />
 
 A framework for creating function decorators in R.
 

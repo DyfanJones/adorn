@@ -6,3 +6,4 @@
 ^docs$
 ^altdoc$
 ^_quarto$
+^data-raw$
