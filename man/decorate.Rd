@@ -16,88 +16,71 @@ decorate(target, signature) <- value
 
 \item{...}{Arguments for specific kinds of target:
 \itemize{
-\item \code{class}: for S3, the class name as a string. For S7, the class (or a
-signature, as accepted by \code{\link[S7:method]{S7::method()}}). For R6, the class generator.
-\item \code{signature}: for S4, the method's signature, as in
-\code{\link[methods:setMethod]{methods::setMethod()}}.
-\item \code{envir}: for S3, the environment to look for the method and generic in.
+\item \code{class}: for S3, the class name as a string. For S7, the class or
+signature, as in \code{\link[S7:method]{S7::method()}}. For R6, the class generator.
+\item \code{signature}: for S4, the signature, as in \code{\link[methods:setMethod]{methods::setMethod()}}.
+\item \code{envir}: for S3, the environment to find the method and generic in.
 Defaults to the caller's.
-\item \code{where}: for S4, the environment the method is stored in. Defaults to
-the top-level environment of the caller. For R6, which part of the
-class holds the method: \code{"public"} (the default), \code{"private"} or
+\item \code{where}: for S4, the environment to store the method in. Defaults to
+the top-level environment of the caller. For R6, the part of the class
+that holds the method: \code{"public"} (the default), \code{"private"} or
 \code{"active"}.
 }}
 
-\item{signature}{For the replacement form, the S7 class or S4 signature,
-as \code{class} or \code{signature} above, an S3 class name, or the name(s) of
-public R6 methods.}
+\item{signature}{For the replacement form, the S7 class, S4 signature, S3
+class name, or R6 method name(s), as above.}
 
 \item{value}{For the replacement form, the decorator to apply.}
 }
 \value{
-For a function, the decorated function. For R6, the class
-generator, invisibly. For the others, the decorated method, invisibly;
-the method is replaced in place.
+For a function, the decorated function. For R6, the class generator,
+invisibly. For the others, the decorated method, invisibly; the method is
+replaced in place.
 }
 \description{
-\code{decorate()} applies a decorator to a target. What it does depends on what
-the target is:
+\code{decorate()} applies a decorator to a target: a function, or a method that
+already exists on an S3, S4, S7 or R6 class. Use \verb{\%@\%} to decorate a
+function you are defining, and \code{decorate()} for code you did not write.
 }
 \details{
 \tabular{lll}{
-   \code{target} \tab Meaning \tab Extra arguments \cr
-   a function \tab Returns the decorated function. Same as \code{decorator \%@\% target}. \tab  \cr
-   a string \tab The name of an S3 generic, or of an R6 method. Decorates it in place. \tab \code{class} \cr
-   an S4 generic \tab Decorates one of its methods in place. \tab \code{signature} \cr
-   an S7 generic \tab Decorates one of its methods in place. \tab \code{class} \cr
+   \code{target} \tab Example \tab Extra argument \cr
+   a function \tab \code{decorate(fn, d)}, the same as \code{d \%@\% fn} \tab  \cr
+   the name of an S3 generic \tab \code{decorate("print", d, class = "money")} \tab \code{class} \cr
+   an S4 generic \tab \code{decorate(area, d, signature = "Square")} \tab \code{signature} \cr
+   an S7 generic \tab \code{decorate(speak, d, class = Dog)} \tab \code{class} \cr
+   the name of an R6 method \tab \code{decorate("add", d, class = Counter)} \tab \code{class} \cr
 }
 
 
-Every kind of method is given the same way, \code{decorate(method, decorator, class)}, in the spirit of an S4 generic: for S3 and R6 the method is named by
-a string and \code{class} says where it lives; for S4 and S7 the generic is the
-method.
-
-Use \verb{\%@\%} to decorate a function as you define it, and \code{decorate()} for a
-method that already exists, such as one from a class you did not write.
-
-\code{decorate()} is an S7 generic, so other packages can add support for their
-own kinds of target with \verb{S7::method(decorate, <class>) <- function(target, decorator, ...) ...}.
+For S3 and R6 the method is named by a string, and \code{class} gives the class or
+R6 generator. For S4 and S7 the generic is the target. The replacement form
+(see below) works for all four systems.
 }
-\section{Decorating an S3 generic}{
-
-You can decorate a generic itself (\code{describe <- shout \%@\% function(x, ...) UseMethod("describe")}). R looks for methods in the environment that calls
-the generic, which is now inside adorn, so methods must be registered or
-defined at top level (as they are in a package or script). Methods defined
-only inside another function will not be found.
-}
-
-\section{Decorating an R6 class}{
+\section{R6 classes}{
 
 \code{decorate("name", decorator, class = Generator)} replaces the method in the
-generator, so objects created afterwards use the decorated version. Objects
-that already exist keep the old method, because R6 copies methods when an
-object is created. A method the class only inherits is copied into
-\code{Generator} and decorated there; the parent class is not changed. Give
-several names to decorate several methods at once.
+generator, so objects created afterwards use it. Objects that already exist
+keep the old method, because R6 copies methods into each object when it is
+created. An inherited method is copied into \code{Generator} and decorated there;
+the parent class is unchanged. Give several names to decorate several methods.
 }
 
 \section{Replacement form}{
 
-\code{decorate(target, class) <- decorator} works for every kind of method and
-mirrors S7's own \code{method(generic, class) <- fn}. It is the same as the
-explicit form with the target and class in the first and last places:
+\code{decorate(target, class) <- decorator} mirrors S7's \code{method(generic, class) <- fn}
+and works for all four systems:
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{decorate(speak, Dog) <- shout            # S7
-decorate(area, "Square") <- shout        # S4
-decorate(print, "money") <- shout        # S3: the generic function itself
-decorate(Counter, "add") <- shout        # R6: the generator and method name(s)
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{decorate(speak, Dog) <- shout        # S7
+decorate(area, "Square") <- shout    # S4
+decorate(print, "money") <- shout    # S3, with the generic function
+decorate(Counter, "add") <- shout    # R6, public methods
 }\if{html}{\out{</div>}}
 
-Like \verb{method<-}, it also rebinds the generic's name in the calling
-environment (to the same generic). R does not allow a string as the target
-of a replacement call, so for S3 give the generic function, not its name.
-The generic must call \code{UseMethod()} directly, and R6 methods are public
-ones; use the explicit form for anything else.
+R does not allow a string as the target of a replacement call, so for S3 pass
+the generic function. Its name is read from its \code{UseMethod()} call, so the
+generic must call \code{UseMethod()} directly. For R6 the form reaches public
+methods only; use the explicit form for \code{where}.
 }
 
 \examples{

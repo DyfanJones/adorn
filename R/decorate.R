@@ -4,58 +4,43 @@ NULL
 
 #' Decorate a function or an existing method
 #'
-#' `decorate()` applies a decorator to a target. What it does depends on what
-#' the target is:
+#' `decorate()` applies a decorator to a target: a function, or a method that
+#' already exists on an S3, S4, S7 or R6 class. Use `%@%` to decorate a
+#' function you are defining, and `decorate()` for code you did not write.
 #'
-#' | `target` | Meaning | Extra arguments |
+#' | `target` | Example | Extra argument |
 #' |---|---|---|
-#' | a function | Returns the decorated function. Same as `decorator %@% target`. | |
-#' | a string | The name of an S3 generic, or of an R6 method. Decorates it in place. | `class` |
-#' | an S4 generic | Decorates one of its methods in place. | `signature` |
-#' | an S7 generic | Decorates one of its methods in place. | `class` |
+#' | a function | `decorate(fn, d)`, the same as `d %@% fn` | |
+#' | the name of an S3 generic | `decorate("print", d, class = "money")` | `class` |
+#' | an S4 generic | `decorate(area, d, signature = "Square")` | `signature` |
+#' | an S7 generic | `decorate(speak, d, class = Dog)` | `class` |
+#' | the name of an R6 method | `decorate("add", d, class = Counter)` | `class` |
 #'
-#' Every kind of method is given the same way, `decorate(method, decorator,
-#' class)`, in the spirit of an S4 generic: for S3 and R6 the method is named by
-#' a string and `class` says where it lives; for S4 and S7 the generic is the
-#' method.
-#'
-#' Use `%@%` to decorate a function as you define it, and `decorate()` for a
-#' method that already exists, such as one from a class you did not write.
-#'
-#' `decorate()` is an S7 generic, so other packages can add support for their
-#' own kinds of target with `S7::method(decorate, <class>) <- function(target,
-#' decorator, ...) ...`.
-#'
-#' @section Decorating an S3 generic:
-#' You can decorate a generic itself (`describe <- shout %@% function(x, ...)
-#' UseMethod("describe")`). R looks for methods in the environment that calls
-#' the generic, which is now inside adorn, so methods must be registered or
-#' defined at top level (as they are in a package or script). Methods defined
-#' only inside another function will not be found.
+#' For S3 and R6 the method is named by a string, and `class` gives the class or
+#' R6 generator. For S4 and S7 the generic is the target. The replacement form
+#' (see below) works for all four systems.
 #'
 #' @param target What to decorate; see the table above.
 #' @param decorator A decorator, or a stack of them built with `%@%`.
 #' @param ... Arguments for specific kinds of target:
-#'   * `class`: for S3, the class name as a string. For S7, the class (or a
-#'     signature, as accepted by [S7::method()]). For R6, the class generator.
-#'   * `signature`: for S4, the method's signature, as in
-#'     [methods::setMethod()].
-#'   * `envir`: for S3, the environment to look for the method and generic in.
+#'   * `class`: for S3, the class name as a string. For S7, the class or
+#'     signature, as in [S7::method()]. For R6, the class generator.
+#'   * `signature`: for S4, the signature, as in [methods::setMethod()].
+#'   * `envir`: for S3, the environment to find the method and generic in.
 #'     Defaults to the caller's.
-#'   * `where`: for S4, the environment the method is stored in. Defaults to
-#'     the top-level environment of the caller. For R6, which part of the
-#'     class holds the method: `"public"` (the default), `"private"` or
+#'   * `where`: for S4, the environment to store the method in. Defaults to
+#'     the top-level environment of the caller. For R6, the part of the class
+#'     that holds the method: `"public"` (the default), `"private"` or
 #'     `"active"`.
-#' @section Decorating an R6 class:
+#' @section R6 classes:
 #' `decorate("name", decorator, class = Generator)` replaces the method in the
-#' generator, so objects created afterwards use the decorated version. Objects
-#' that already exist keep the old method, because R6 copies methods when an
-#' object is created. A method the class only inherits is copied into
-#' `Generator` and decorated there; the parent class is not changed. Give
-#' several names to decorate several methods at once.
-#' @return For a function, the decorated function. For R6, the class
-#'   generator, invisibly. For the others, the decorated method, invisibly;
-#'   the method is replaced in place.
+#' generator, so objects created afterwards use it. Objects that already exist
+#' keep the old method, because R6 copies methods into each object when it is
+#' created. An inherited method is copied into `Generator` and decorated there;
+#' the parent class is unchanged. Give several names to decorate several methods.
+#' @return For a function, the decorated function. For R6, the class generator,
+#'   invisibly. For the others, the decorated method, invisibly; the method is
+#'   replaced in place.
 #' @export
 #' @examples
 #' # A function
@@ -256,25 +241,22 @@ S7::method(decorate, S7::new_S3_class("S7_generic")) <- function(
 
 #' @rdname decorate
 #' @section Replacement form:
-#' `decorate(target, class) <- decorator` works for every kind of method and
-#' mirrors S7's own `method(generic, class) <- fn`. It is the same as the
-#' explicit form with the target and class in the first and last places:
+#' `decorate(target, class) <- decorator` mirrors S7's `method(generic, class) <- fn`
+#' and works for all four systems:
 #'
 #' ```r
-#' decorate(speak, Dog) <- shout            # S7
-#' decorate(area, "Square") <- shout        # S4
-#' decorate(print, "money") <- shout        # S3: the generic function itself
-#' decorate(Counter, "add") <- shout        # R6: the generator and method name(s)
+#' decorate(speak, Dog) <- shout        # S7
+#' decorate(area, "Square") <- shout    # S4
+#' decorate(print, "money") <- shout    # S3, with the generic function
+#' decorate(Counter, "add") <- shout    # R6, public methods
 #' ```
 #'
-#' Like `method<-`, it also rebinds the generic's name in the calling
-#' environment (to the same generic). R does not allow a string as the target
-#' of a replacement call, so for S3 give the generic function, not its name.
-#' The generic must call `UseMethod()` directly, and R6 methods are public
-#' ones; use the explicit form for anything else.
-#' @param signature For the replacement form, the S7 class or S4 signature,
-#'   as `class` or `signature` above, an S3 class name, or the name(s) of
-#'   public R6 methods.
+#' R does not allow a string as the target of a replacement call, so for S3 pass
+#' the generic function. Its name is read from its `UseMethod()` call, so the
+#' generic must call `UseMethod()` directly. For R6 the form reaches public
+#' methods only; use the explicit form for `where`.
+#' @param signature For the replacement form, the S7 class, S4 signature, S3
+#'   class name, or R6 method name(s), as above.
 #' @param value For the replacement form, the decorator to apply.
 #' @export
 `decorate<-` <- S7::new_generic(
