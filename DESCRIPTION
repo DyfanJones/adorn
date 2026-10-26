@@ -6,6 +6,8 @@ Authors@R:
 Description: A framework for creating function decorators in R. Decorators
     can be applied to functions and to S3, S4, S7 and R6 methods.
 License: MIT + file LICENSE
+URL: https://dyfanjones.github.io/adorn/, https://github.com/DyfanJones/adorn
+BugReports: https://github.com/DyfanJones/adorn/issues
 Depends:
     R (>= 4.4.0)
 Imports: methods, S7 (>= 0.2.0), utils

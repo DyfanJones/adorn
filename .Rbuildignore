@@ -3,3 +3,6 @@
 ^doc$
 ^Meta$
 ^\.github$
+^docs$
+^altdoc$
+^_quarto$
