@@ -147,7 +147,7 @@ class. It is an S7 generic that dispatches on the target:
 | the name of an S3 generic | `decorate("print", logged, class = "money")` | the method, replaced in place |
 | an S4 generic | `decorate(area, timed, signature = "Square")` | the method, replaced in place |
 | an S7 generic | `decorate(speak, timed, class = Dog)` | the method, replaced in place |
-| an R6 class generator | `decorate(Counter, logged, method = "add")` | the generator, with the method replaced |
+| the name of an R6 method | `decorate("add", logged, class = Counter)` | the generator, with the method replaced |
 
 For a function, `decorate(fn, d)` is the same as `d %@% fn`. Pass a stack to
 apply several at once; the first is outermost.
@@ -158,12 +158,15 @@ decorators(safe_sq)
 #> [1] "retry" "timed"
 ```
 
-For S4, S7 and R6 you can also use the replacement form, which mirrors S7's
-`method(generic, class) <- fn`:
+Every method can be decorated in the explicit form,
+`decorate(method, decorator, class)`, where S3 and R6 name the method with a
+string and S4 and S7 pass the generic itself. There is also a replacement form
+that works for all of them and mirrors S7's `method(generic, class) <- fn`:
 
 ```r
 decorate(speak, Dog) <- logged %@% timed     # S7
 decorate(area, "Square") <- timed            # S4
+decorate(print, "money") <- logged           # S3, give the generic function
 decorate(Counter, "add") <- logged           # R6, public methods
 ```
 

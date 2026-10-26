@@ -176,7 +176,7 @@ test_that("decorate() on a function matches %@%", {
 
 test_that("decorate() gives clear errors for bad targets and missing arguments", {
   expect_error(decorate(1, plus1), "Can't find method")
-  expect_error(decorate("print", plus1), "Supply the S3 `class`")
+  expect_error(decorate("print", plus1), "Supply the `class`")
   expect_error(decorate(c("a", "b"), plus1, class = "x"), "single generic name")
   setGeneric("perr", function(x, ...) standardGeneric("perr"))
   expect_error(decorate(perr, plus1), "Supply the S4 `signature`")
@@ -235,7 +235,7 @@ test_that("replacement form stacks like decorate()", {
 })
 
 test_that("replacement form explains that S3 is not supported", {
-  expect_error(decorate(print, "money") <- plus1, "S3 methods use")
+  expect_error(decorate(sum, "money") <- plus1, "UseMethod")
 })
 
 test_that("decorate() decorates R6 methods in a generator", {
@@ -253,7 +253,7 @@ test_that("decorate() decorates R6 methods in a generator", {
     private = list(bump = function(k) k),
     active = list(double = function(value) self$n * 2)
   )
-  res <- decorate(Counter, who, method = "get")
+  res <- decorate("get", who, class = Counter)
   expect_identical(res, Counter)
 
   obj <- Counter$new()
@@ -262,9 +262,9 @@ test_that("decorate() decorates R6 methods in a generator", {
   expect_equal(as.numeric(obj$get()[["value"]]), 5)
 
   # private and active methods, several at once
-  decorate(Counter, plus1, method = "bump", where = "private")
+  decorate("bump", plus1, class = Counter, where = "private")
   expect_equal(Counter$new()$add(2)$n, 3)
-  decorate(Counter, plus1, method = "double", where = "active")
+  decorate("double", plus1, class = Counter, where = "active")
   expect_equal(Counter$new()$double, 1)
 
   # objects created before keep the old method
@@ -275,7 +275,7 @@ test_that("decorate() on an R6 class copies inherited methods into the child", {
   skip_if_not_installed("R6")
   Parent <- R6::R6Class("DParent", public = list(val = function() 1))
   Child <- R6::R6Class("DChild", inherit = Parent)
-  decorate(Child, plus1, method = "val")
+  decorate("val", plus1, class = Child)
   expect_equal(Child$new()$val(), 2)
   expect_equal(Parent$new()$val(), 1)
 })
@@ -283,9 +283,10 @@ test_that("decorate() on an R6 class copies inherited methods into the child", {
 test_that("decorate() on an R6 class validates its input", {
   skip_if_not_installed("R6")
   Counter <- R6::R6Class("DCheck", public = list(a = function() 1))
-  expect_error(decorate(Counter, plus1), "`method`")
-  expect_error(decorate(Counter, plus1, method = "nope"), "No public method `nope`")
-  expect_error(decorate(Counter, plus1, method = c("a", "nope")), "nope")
+  expect_error(decorate(Counter, plus1), "class = Generator")
+  expect_error(decorate("a", plus1), "Supply the `class`")
+  expect_error(decorate("nope", plus1, class = Counter), "No public method `nope`")
+  expect_error(decorate(c("a", "nope"), plus1, class = Counter), "nope")
   expect_equal(Counter$new()$a(), 1)
 })
 
@@ -294,4 +295,11 @@ test_that("the replacement form decorates R6 methods", {
   Counter <- R6::R6Class("DRepl", public = list(a = function() 1))
   decorate(Counter, "a") <- plus1
   expect_equal(Counter$new()$a(), 2)
+})
+
+test_that("the replacement form decorates S3 methods from the generic", {
+  area <- function(x, ...) UseMethod("area")
+  area.rsq <- function(x, ...) x$side^2
+  decorate(area, "rsq") <- plus1
+  expect_equal(area(structure(list(side = 3), class = "rsq")), 10)
 })

@@ -17,12 +17,11 @@ decorate(target, signature) <- value
 \item{...}{Arguments for specific kinds of target:
 \itemize{
 \item \code{class}: for S3, the class name as a string. For S7, the class (or a
-signature, as accepted by \code{\link[S7:method]{S7::method()}}).
+signature, as accepted by \code{\link[S7:method]{S7::method()}}). For R6, the class generator.
 \item \code{signature}: for S4, the method's signature, as in
 \code{\link[methods:setMethod]{methods::setMethod()}}.
 \item \code{envir}: for S3, the environment to look for the method and generic in.
 Defaults to the caller's.
-\item \code{method}: for R6, the name(s) of the method(s) to decorate.
 \item \code{where}: for S4, the environment the method is stored in. Defaults to
 the top-level environment of the caller. For R6, which part of the
 class holds the method: \code{"public"} (the default), \code{"private"} or
@@ -30,12 +29,13 @@ class holds the method: \code{"public"} (the default), \code{"private"} or
 }}
 
 \item{signature}{For the replacement form, the S7 class or S4 signature,
-as \code{class} or \code{signature} above, or the name(s) of public R6 methods.}
+as \code{class} or \code{signature} above, an S3 class name, or the name(s) of
+public R6 methods.}
 
 \item{value}{For the replacement form, the decorator to apply.}
 }
 \value{
-For a function, the decorated function. For an R6 generator, the
+For a function, the decorated function. For R6, the class
 generator, invisibly. For the others, the decorated method, invisibly;
 the method is replaced in place.
 }
@@ -47,12 +47,15 @@ the target is:
 \tabular{lll}{
    \code{target} \tab Meaning \tab Extra arguments \cr
    a function \tab Returns the decorated function. Same as \code{decorator \%@\% target}. \tab  \cr
-   a string \tab The name of an S3 generic. Decorates one of its methods in place. \tab \code{class} \cr
+   a string \tab The name of an S3 generic, or of an R6 method. Decorates it in place. \tab \code{class} \cr
    an S4 generic \tab Decorates one of its methods in place. \tab \code{signature} \cr
    an S7 generic \tab Decorates one of its methods in place. \tab \code{class} \cr
-   an R6 class generator \tab Decorates one or more of its methods in place. \tab \code{method}, \code{where} \cr
 }
 
+
+Every kind of method is given the same way, \code{decorate(method, decorator, class)}, in the spirit of an S4 generic: for S3 and R6 the method is named by
+a string and \code{class} says where it lives; for S4 and S7 the generic is the
+method.
 
 Use \verb{\%@\%} to decorate a function as you define it, and \code{decorate()} for a
 method that already exists, such as one from a class you did not write.
@@ -70,28 +73,31 @@ only inside another function will not be found.
 
 \section{Decorating an R6 class}{
 
-\code{decorate(Generator, decorator, method = "name")} replaces the method in the
+\code{decorate("name", decorator, class = Generator)} replaces the method in the
 generator, so objects created afterwards use the decorated version. Objects
 that already exist keep the old method, because R6 copies methods when an
 object is created. A method the class only inherits is copied into
-\code{Generator} and decorated there; the parent class is not changed.
+\code{Generator} and decorated there; the parent class is not changed. Give
+several names to decorate several methods at once.
 }
 
 \section{Replacement form}{
 
-For S4 and S7, where the target is an object that carries its own name,
-\code{decorate(generic, signature) <- decorator} is the same as
-\code{decorate(generic, decorator, signature = signature)}. It mirrors S7's own
-\code{method(generic, class) <- fn}:
+\code{decorate(target, class) <- decorator} works for every kind of method and
+mirrors S7's own \code{method(generic, class) <- fn}. It is the same as the
+explicit form with the target and class in the first and last places:
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{decorate(speak, Dog) <- shout                       # S7
-decorate(area, "Square") <- shout                 # S4
-decorate(Counter, "add") <- shout                 # R6, public methods
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{decorate(speak, Dog) <- shout            # S7
+decorate(area, "Square") <- shout        # S4
+decorate(print, "money") <- shout        # S3: the generic function itself
+decorate(Counter, "add") <- shout        # R6: the generator and method name(s)
 }\if{html}{\out{</div>}}
 
 Like \verb{method<-}, it also rebinds the generic's name in the calling
 environment (to the same generic). R does not allow a string as the target
-of a replacement call, so S3 methods use the explicit form.
+of a replacement call, so for S3 give the generic function, not its name.
+The generic must call \code{UseMethod()} directly, and R6 methods are public
+ones; use the explicit form for anything else.
 }
 
 \examples{
@@ -111,7 +117,7 @@ if (requireNamespace("R6", quietly = TRUE)) {
   Greeter <- R6::R6Class("Greeter", public = list(
     hi = function(who) paste("hello", who)
   ))
-  decorate(Greeter, shout, method = "hi")
+  decorate("hi", shout, class = Greeter)
   Greeter$new()$hi("world")
 }
 }

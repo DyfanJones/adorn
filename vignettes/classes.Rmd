@@ -152,14 +152,27 @@ outermost first.
 
 ## S3
 
-Give `decorate()` the generic's name as a string and the class. S3 methods
-always use this explicit form.
+Give `decorate()` the generic's name as a string and the class. This works for
+any generic.
 
 ```{r s3-decorate}
 format.money <- function(x, ...) paste0("$", x$amount)
 decorate("format", timed, class = "money")
 
 format(money(3))
+```
+
+You can also pass the generic function itself with the replacement form, as for
+the other systems. The generic must call `UseMethod()` directly, so internal
+generics such as `length()` need the string form above.
+
+```{r s3-replace}
+perimeter <- function(x, ...) UseMethod("perimeter")
+perimeter.square <- function(x, ...) 4 * x$side
+
+decorate(perimeter, "square") <- logged
+
+perimeter(structure(list(side = 3), class = "square"))
 ```
 
 ## S4
@@ -207,7 +220,8 @@ speak(Dog(name = "Rex"))
 
 ## R6
 
-Give `decorate()` the class generator and the name of the method. Objects
+Give `decorate()` the name of the method and the class generator as `class`,
+the same shape as for S3. Objects
 created afterwards use the decorated method; objects that already exist keep
 the old one, because R6 copies methods into each object when it is created.
 
@@ -224,14 +238,14 @@ Resetter <- R6Class("Resetter", public = list(
   }
 ))
 
-decorate(Resetter, logged, method = "add")
+decorate("add", logged, class = Resetter)
 
 r <- Resetter$new()
 r$add(2)$add(3)
 r$n
 ```
 
-Pass several names to `method`. Use `where` for methods that are not public
+Pass several names to decorate several methods at once. Use `where` for methods that are not public
 (`"public"` is the default, the others are `"private"` and `"active"`).
 
 ```{r r6-where, eval = requireNamespace("R6", quietly = TRUE)}
@@ -240,7 +254,7 @@ Safe <- R6Class("Safe",
   private = list(step = function() "ok")
 )
 
-decorate(Safe, logged, method = "step", where = "private")
+decorate("step", logged, class = Safe, where = "private")
 Safe$new()$go()
 ```
 
@@ -251,13 +265,14 @@ snapshot: decorating the parent again later does not affect it.
 ```{r r6-inherit, eval = requireNamespace("R6", quietly = TRUE)}
 Doubler <- R6Class("Doubler", inherit = Resetter)
 
-decorate(Doubler, timed, method = "reset")
+decorate("reset", timed, class = Doubler)
 
 invisible(Doubler$new()$reset())   # timed
 invisible(Resetter$new()$reset())  # not timed
 ```
 
-For public methods the replacement form also works.
+For public methods the replacement form also works, and takes the same shape as
+S7's `method(generic, class) <- fn`.
 
 ```{r r6-replace, eval = requireNamespace("R6", quietly = TRUE)}
 decorate(Resetter, "reset") <- logged
