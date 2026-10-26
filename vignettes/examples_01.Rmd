@@ -1,0 +1,155 @@
+---
+title: "examples_01"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{examples_01}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(adorn)
+```
+
+adorn is a framework for writing decorators; it does not ship any. This
+vignette defines a few common ones using only the public `decorator()` API, so
+they double as examples for writing your own. Copy any of them into your own
+code.
+
+## timed
+
+Call style (the wrapper has `...`): the body runs on every call.
+
+```{r timed}
+timed <- decorator(
+  function(f, ..., digits = 3) {
+    name <- decorator_context()$name
+    start <- proc.time()[["elapsed"]]
+    on.exit(message(sprintf(
+      "%s took %s s",
+      name,
+      round(proc.time()[["elapsed"]] - start, digits)
+    )))
+    f(...)
+  },
+  name = "timed"
+)
+
+slow_add <- timed %@% function(x, y = 1) {
+  Sys.sleep(0.1)
+  x + y
+}
+slow_add(2)
+```
+
+## logged
+
+`withVisible()` keeps functions that return `invisible()` quiet.
+
+```{r logged}
+logged <- decorator(
+  function(f, ...) {
+    name <- decorator_context()$name
+    message("-> ", name)
+    result <- withVisible(f(...))
+    message("<- ", name)
+    if (result$visible) result$value else invisible(result$value)
+  },
+  name = "logged"
+)
+
+double <- logged %@% function(x) x * 2
+double(21)
+```
+
+Decorators stack; the one on the left is outermost.
+
+```{r stack}
+tracked <- logged %@% timed(digits = 2) %@% function(x) x * 2
+tracked(21)
+decorators(tracked)
+```
+
+## memoize
+
+Factory style (no `...`): the body runs once, when the function is decorated,
+so each decorated function gets its own cache.
+
+```{r memoize}
+memoize <- decorator(
+  function(f) {
+    cache <- new.env(parent = emptyenv())
+    function(...) {
+      key <- paste(deparse(list(...)), collapse = "")
+      if (!exists(key, envir = cache, inherits = FALSE)) {
+        assign(key, f(...), envir = cache)
+      }
+      get(key, envir = cache, inherits = FALSE)
+    }
+  },
+  name = "memoize"
+)
+
+fib <- memoize %@% function(n) if (n < 2) n else fib(n - 1) + fib(n - 2)
+fib(30)
+```
+
+## once
+
+```{r once}
+once <- decorator(
+  function(f) {
+    done <- FALSE
+    value <- NULL
+    function(...) {
+      if (!done) {
+        value <<- f(...)
+        done <<- TRUE
+      }
+      value
+    }
+  },
+  name = "once"
+)
+
+draw <- once %@% function() runif(1)
+identical(draw(), draw())
+```
+
+## retry
+
+```{r retry}
+retry <- decorator(
+  function(f, ..., times = 3, delay = 0) {
+    for (i in seq_len(times)) {
+      failed <- FALSE
+      result <- tryCatch(withVisible(f(...)), error = function(e) {
+        failed <<- TRUE
+        e
+      })
+      if (!failed) {
+        return(if (result$visible) result$value else invisible(result$value))
+      }
+      if (i < times && delay > 0) Sys.sleep(delay)
+    }
+    stop(result)
+  },
+  name = "retry"
+)
+
+attempts <- 0
+flaky <- retry(times = 3) %@% function() {
+  attempts <<- attempts + 1
+  if (attempts < 3) stop("boom")
+  "ok"
+}
+flaky()
+attempts
+```
