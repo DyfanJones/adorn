@@ -1,3 +1,8 @@
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/DyfanJones/adorn/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/DyfanJones/adorn/actions/workflows/R-CMD-check.yaml)
+[![Codecov test coverage](https://codecov.io/gh/DyfanJones/adorn/graph/badge.svg)](https://app.codecov.io/gh/DyfanJones/adorn)
+<!-- badges: end -->
+
 # adorn
 
 A framework for creating function decorators in R.
@@ -22,9 +27,7 @@ ships no decorators of its own; it is the framework for making them.
 `retry` with the public API. The examples below that use them assume you have
 copied those definitions.
 
-> adorn is in early development. Plain functions and S3, S4, S7 and R6
-> methods are supported, both inline with `%@%` and on existing classes with
-> `decorate()`.
+> adorn is in early development, so the API may still change.
 
 ## Installation
 
@@ -612,11 +615,3 @@ usable name, such as `lapply(x, f)`, fall back to the name of the function that
 was decorated, or `"<anonymous>"`.
 
 adorn does not define `:=`, to avoid clashing with S7, rlang and data.table.
-
-## Roadmap
-
-- [x] Core: `decorator()`, `%@%`, stacking, parameters, state, introspection
-- [x] Example decorators in `vignette("examples_01")`
-- [x] `%@%` on S3, S4, S7 and R6 methods
-- [x] `decorate()` generic for existing S3, S4, S7 and R6 methods
-- [x] Replacement form `decorate(generic, class) <- decorator` for S4, S7 and R6 (prototype, under review)
