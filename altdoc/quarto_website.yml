@@ -40,5 +40,7 @@ website:
 format:
   html:
     code-link: true
-#     theme: cosmo
-#     number-sections: false
+    theme:
+      light: cosmo
+      dark: darkly
+

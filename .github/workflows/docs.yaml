@@ -36,7 +36,7 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::altdoc, any::knitr, any::rmarkdown
+          extra-packages: any::altdoc, any::knitr, any::rmarkdown, any::downlit, any::xml2
 
       # The vignettes call library(adorn), so install the package itself.
       - name: Install package
