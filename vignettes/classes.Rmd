@@ -190,6 +190,14 @@ area(new("Square", side = 3))
 decorators(getMethod("area", "Square"))
 ```
 
+The replacement form works here too, and mirrors S7's `method(generic, class) <- fn`:
+
+```{r s4-replace}
+decorate(area, "Square") <- logged
+
+area(new("Square", side = 3))
+```
+
 ## S7
 
 Give `decorate()` the generic and the class. The method is wrapped in place.
