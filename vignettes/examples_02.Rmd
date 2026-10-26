@@ -1,25 +1,20 @@
 ---
 title: "examples_02"
-output: rmarkdown::html_vignette
+output: litedown::html_format
 vignette: >
   %\VignetteIndexEntry{examples_02}
-  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEngine{litedown::vignette}
   %\VignetteEncoding{UTF-8}
 ---
-
-```{r, include = FALSE}
-knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
-)
-```
 
 ```{r setup}
 library(adorn)
 ```
 
 These examples use the `timed`, `logged` and `memoize` decorators from
-`vignette("examples_01")`, repeated here so this vignette stands alone.
+`vignette("examples_01")`, repeated here so this vignette stands alone. The
+`memoize` here is a minimal version that keys on the raw arguments and needs no
+other packages; `vignette("examples_01")` has a fuller one.
 
 ```{r timed}
 timed <- decorator(

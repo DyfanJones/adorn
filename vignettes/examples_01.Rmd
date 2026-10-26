@@ -1,18 +1,11 @@
 ---
 title: "examples_01"
-output: rmarkdown::html_vignette
+output: litedown::html_format
 vignette: >
   %\VignetteIndexEntry{examples_01}
-  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEngine{litedown::vignette}
   %\VignetteEncoding{UTF-8}
 ---
-
-```{r, include = FALSE}
-knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>"
-)
-```
 
 ```{r setup}
 library(adorn)
@@ -42,10 +35,11 @@ timed <- decorator(
   name = "timed"
 )
 
-slow_add <- timed %@% function(x, y = 1) {
-  Sys.sleep(0.1)
-  x + y
-}
+slow_add <- timed %@%
+  function(x, y = 1) {
+    Sys.sleep(0.1)
+    x + y
+  }
 slow_add(2)
 ```
 
@@ -80,26 +74,67 @@ decorators(tracked)
 ## memoize
 
 Factory style (no `...`): the body runs once, when the function is decorated,
-so each decorated function gets its own cache.
+so each decorated function gets its own cache. A naive version would key on the
+raw arguments, making `f(1)`, `f(x = 1)` and a call that spells out a default
+three cache entries. This one is adapted from the
+[memoise](https://github.com/r-lib/memoise) package. It matches arguments to the
+formals and fills in defaults before hashing, can ignore arguments with
+`omit_args`, takes a custom `hash` and `cache`, and keeps `invisible()` results
+quiet. The default cache is a [cachem](https://cachem.r-lib.org) memory cache,
+which evicts the least recently used entries once it passes `max_size`.
 
-```{r memoize}
+```{r memoize, eval = FALSE}
+# Adapted from memoise::memoise() (https://github.com/r-lib/memoise).
 memoize <- decorator(
-  function(f) {
-    cache <- new.env(parent = emptyenv())
+  function(
+    f,
+    omit_args = character(),
+    hash = function(x) rlang::hash(x),
+    cache = cachem::cache_mem(max_size = 1024 * 1024^2)
+  ) {
+    # Hash the function once, so each call only hashes its arguments.
+    f_hash <- hash(list(formals(f), as.character(body(f))))
+    defaults <- Filter(function(x) !identical(x, quote(expr = )), formals(f))
+
     function(...) {
-      key <- paste(deparse(list(...)), collapse = "")
-      if (!exists(key, envir = cache, inherits = FALSE)) {
-        assign(key, f(...), envir = cache)
+      # Match values to formals, then add the defaults that were not supplied.
+      matched <- as.list(match.call(f, as.call(c(quote(f), list(...)))))[-1L]
+      named <- matched[names(matched) %in% names(formals(f))]
+      env <- list2env(named, parent = environment(f))
+      missing_defaults <- defaults[setdiff(names(defaults), names(matched))]
+      args <- c(matched, lapply(missing_defaults, eval, envir = env))
+      args[omit_args] <- NULL
+
+      key <- hash(c(f_hash, args))
+      res <- cache$get(key)
+      if (inherits(res, "key_missing")) {
+        res <- withVisible(f(...))
+        cache$set(key, res)
       }
-      get(key, envir = cache, inherits = FALSE)
+      if (res$visible) res$value else invisible(res$value)
     }
   },
   name = "memoize"
 )
 
-fib <- memoize %@% function(n) if (n < 2) n else fib(n - 1) + fib(n - 2)
-fib(30)
+calls <- 0
+area <- memoize(omit_args = "verbose") %@%
+  function(w, h = 2, verbose = FALSE) {
+    calls <<- calls + 1
+    w * h
+  }
+area(3)
+#> [1] 6
+area(w = 3)
+#> [1] 6
+area(3, 2, verbose = TRUE)
+#> [1] 6
+calls
+#> [1] 1
 ```
+
+Any cachem-style cache works: `cachem::cache_disk()` persists across sessions,
+and `cachem::cache_mem(max_age = 60)` expires entries.
 
 ## once
 
@@ -145,11 +180,14 @@ retry <- decorator(
 )
 
 attempts <- 0
-flaky <- retry(times = 3) %@% function() {
-  attempts <<- attempts + 1
-  if (attempts < 3) stop("boom")
-  "ok"
-}
+flaky <- retry(times = 3) %@%
+  function() {
+    attempts <<- attempts + 1
+    if (attempts < 3) {
+      stop("boom")
+    }
+    "ok"
+  }
 flaky()
 attempts
 ```
