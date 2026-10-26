@@ -191,5 +191,3 @@ method(decorate, Pipeline) <- function(target, decorator, ...) {
   target
 }
 ```
-
-adorn does not define `:=`, to avoid clashing with S7, rlang and data.table.
