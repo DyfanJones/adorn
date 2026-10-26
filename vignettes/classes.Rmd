@@ -1,0 +1,266 @@
+---
+title: "Decorating S3, S4, S7 and R6 methods"
+output: litedown::html_format
+vignette: >
+  %\VignetteIndexEntry{Decorating S3, S4, S7 and R6 methods}
+  %\VignetteEngine{litedown::vignette}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup}
+library(adorn)
+```
+
+These examples use the `timed`, `logged` and `memoize` decorators from
+`vignette("writing-decorators")`, repeated here so this vignette stands alone. The
+`memoize` here is a minimal version that keys on the raw arguments and needs no
+other packages; `vignette("writing-decorators")` has a fuller one.
+
+```{r timed}
+timed <- decorator(
+  function(f, ..., digits = 3) {
+    name <- decorator_context()$name
+    start <- proc.time()[["elapsed"]]
+    on.exit(message(sprintf(
+      "%s took %s s",
+      name,
+      round(proc.time()[["elapsed"]] - start, digits)
+    )))
+    f(...)
+  },
+  name = "timed"
+)
+```
+
+```{r logged}
+logged <- decorator(
+  function(f, ...) {
+    name <- decorator_context()$name
+    message("-> ", name)
+    result <- withVisible(f(...))
+    message("<- ", name)
+    if (result$visible) result$value else invisible(result$value)
+  },
+  name = "logged"
+)
+```
+
+```{r memoize}
+memoize <- decorator(
+  function(f) {
+    cache <- new.env(parent = emptyenv())
+    function(...) {
+      key <- paste(deparse(list(...)), collapse = "")
+      if (!exists(key, envir = cache, inherits = FALSE)) {
+        assign(key, f(...), envir = cache)
+      }
+      get(key, envir = cache, inherits = FALSE)
+    }
+  },
+  name = "memoize"
+)
+```
+
+# Defining a method
+
+`%@%` works wherever you define a function, so it can decorate a method as you
+write it.
+
+## S3
+
+```{r s3}
+money <- function(x) structure(list(amount = x), class = "money")
+
+print.money <- logged %@% function(x, ...) {
+  cat("$", format(x$amount, nsmall = 2), "\n")
+  invisible(x)
+}
+
+print(money(12.5))
+```
+
+## S4
+
+```{r s4}
+setClass("Circle", representation(r = "numeric"))
+setGeneric("area", function(shape, ...) standardGeneric("area"))
+
+setMethod("area", "Circle", logged %@% function(shape, ...) pi * shape@r^2)
+
+area(new("Circle", r = 2))
+```
+
+## S7
+
+```{r s7}
+library(S7)
+
+Dog <- new_class("Dog", properties = list(name = class_character))
+
+speak <- new_generic("speak", "x")
+method(speak, Dog) <- logged %@% function(x) paste(x@name, "says woof")
+
+speak(Dog(name = "Rex"))
+```
+
+## R6
+
+Decorated methods keep access to `self` and `private`, and `invisible(self)`
+still chains.
+
+```{r r6, eval = requireNamespace("R6", quietly = TRUE)}
+library(R6)
+
+Counter <- R6Class("Counter",
+  public = list(
+    n = 0,
+    add = logged %@% function(k = 1) {
+      self$n <- self$n + k
+      invisible(self)
+    }
+  )
+)
+
+counter <- Counter$new()
+counter$add(2)$add(3)
+counter$n
+```
+
+A stateful decorator works too. R6 methods belong to the class, so the cache
+below is shared by every `Model` object (the key is the argument, not `self`).
+
+```{r r6-memoize, eval = requireNamespace("R6", quietly = TRUE)}
+Model <- R6Class("Model", public = list(
+  scale = 10,
+  predict = memoize %@% function(x) {
+    message("computing")
+    x * self$scale
+  }
+))
+
+m <- Model$new()
+m$predict(2)
+m$predict(2)
+```
+
+# Decorating a method that already exists
+
+`%@%` is for methods you are defining. When the class is already built, perhaps
+by another package, use `decorate()` to wrap one of its methods afterwards.
+Each call adds a layer on the outside, and `decorators()` lists the stack,
+outermost first.
+
+## S3
+
+Give `decorate()` the generic's name as a string and the class. S3 methods
+always use this explicit form.
+
+```{r s3-decorate}
+format.money <- function(x, ...) paste0("$", x$amount)
+decorate("format", timed, class = "money")
+
+format(money(3))
+```
+
+## S4
+
+Give `decorate()` the generic and the signature.
+
+```{r s4-decorate}
+setClass("Square", representation(side = "numeric"))
+setMethod("area", "Square", function(shape, ...) shape@side^2)
+
+decorate(area, logged, signature = "Square")
+decorate(area, timed, signature = "Square")
+
+area(new("Square", side = 3))
+decorators(getMethod("area", "Square"))
+```
+
+## S7
+
+Give `decorate()` the generic and the class. The method is wrapped in place.
+
+```{r s7-decorate}
+decorate(speak, timed, class = Dog)
+
+speak(Dog(name = "Rex"))
+```
+
+The stack can be inspected, and the replacement form mirrors
+`method(generic, class) <- fn`:
+
+```{r s7-replace}
+decorate(speak, Dog) <- memoize
+
+decorators(method(speak, Dog))
+```
+
+`undecorate()` returns the original function. Register it again to remove all
+the decorators.
+
+```{r s7-undecorate}
+method(speak, Dog) <- undecorate(method(speak, Dog))
+
+speak(Dog(name = "Rex"))
+```
+
+## R6
+
+Give `decorate()` the class generator and the name of the method. Objects
+created afterwards use the decorated method; objects that already exist keep
+the old one, because R6 copies methods into each object when it is created.
+
+```{r r6-decorate, eval = requireNamespace("R6", quietly = TRUE)}
+Resetter <- R6Class("Resetter", public = list(
+  n = 0,
+  add = function(k = 1) {
+    self$n <- self$n + k
+    invisible(self)
+  },
+  reset = function() {
+    self$n <- 0
+    invisible(self)
+  }
+))
+
+decorate(Resetter, logged, method = "add")
+
+r <- Resetter$new()
+r$add(2)$add(3)
+r$n
+```
+
+Pass several names to `method`. Use `where` for methods that are not public
+(`"public"` is the default, the others are `"private"` and `"active"`).
+
+```{r r6-where, eval = requireNamespace("R6", quietly = TRUE)}
+Safe <- R6Class("Safe",
+  public = list(go = function() private$step()),
+  private = list(step = function() "ok")
+)
+
+decorate(Safe, logged, method = "step", where = "private")
+Safe$new()$go()
+```
+
+A method the class only inherits is copied into the class you pass and
+decorated there. The parent is not changed, as with S7. The copy is a
+snapshot: decorating the parent again later does not affect it.
+
+```{r r6-inherit, eval = requireNamespace("R6", quietly = TRUE)}
+Doubler <- R6Class("Doubler", inherit = Resetter)
+
+decorate(Doubler, timed, method = "reset")
+
+invisible(Doubler$new()$reset())   # timed
+invisible(Resetter$new()$reset())  # not timed
+```
+
+For public methods the replacement form also works.
+
+```{r r6-replace, eval = requireNamespace("R6", quietly = TRUE)}
+decorate(Resetter, "reset") <- logged
+
+invisible(Resetter$new()$reset())
+```

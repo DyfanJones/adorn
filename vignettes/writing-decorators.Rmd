@@ -1,8 +1,8 @@
 ---
-title: "examples_01"
+title: "Writing decorators"
 output: litedown::html_format
 vignette: >
-  %\VignetteIndexEntry{examples_01}
+  %\VignetteIndexEntry{Writing decorators}
   %\VignetteEngine{litedown::vignette}
   %\VignetteEncoding{UTF-8}
 ---
