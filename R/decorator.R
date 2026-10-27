@@ -140,9 +140,9 @@ print.adorn_decorator <- function(x, ...) {
 # one of these would shadow it in `call_env`, so it is bound under a mangled
 # name instead.
 invoke_names <- c(
-  "f", "orig", "f_env", "holder", "env", "fn", "previous", "was_swapped",
-  "parent.env", "parent.frame", "is.null", "identical", "environment<-",
-  "on.exit", "return", "{", "(", "if", "<-", "||", "!", "$", "$<-"
+  "f", "f_env", "holder", "env", "fn", "previous", "was_swapped",
+  "parent.env", "parent.frame", "identical", "environment<-",
+  "on.exit", "return", "{", "if", "<-", "!", "$", "$<-"
 )
 
 decorate_function <- function(f, wrapper, style, config, dec_name) {
@@ -165,7 +165,9 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   # object). The decorated function carries that environment, but `f` would
   # still have the old one, so at call time `f` is re-pointed at whatever
   # environment the wrapper currently has.
-  f_env <- environment(f)
+  # Primitives have no environment; the decorated function then closes over
+  # `baseenv()` (see `forward_formals()`), which is what gets compared.
+  f_env <- environment(f) %||% baseenv()
 
   holder <- new.env(parent = emptyenv())
   holder$fn <- f
@@ -178,7 +180,6 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   # with nothing to intercept. The name is bound in a small environment that
   # `invoke` closes over; if it would shadow something `invoke` uses, a
   # mangled name is bound instead.
-  orig <- f
   call_env <- new.env(parent = environment())
   call_name <- if (dec_name %in% invoke_names) {
     paste0(".", dec_name)
@@ -195,14 +196,13 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
       bquote(function(...) {
         # `parent.frame()` is the decorated function's own frame, so its
         # parent is the environment that function currently closes over.
-        env <- parent.env(parent.frame())
-        f <- if (is.null(f_env) || is.null(env) || identical(env, f_env)) {
-          orig
+        if (identical(parent.env(parent.frame()), f_env)) {
+          .(call_sym)(f, ...)
         } else {
-          environment(orig) <- env
-          orig
+          f <- f
+          environment(f) <- parent.env(parent.frame())
+          .(call_sym)(f, ...)
         }
-        .(call_sym)(f, ...)
       }),
       call_env
     )
@@ -225,13 +225,13 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     invoke <- eval(
       bquote(function(...) {
         env <- parent.env(parent.frame())
-        if (is.null(f_env) || is.null(env) || identical(env, f_env)) {
+        if (identical(env, f_env)) {
           if (!holder$swapped) {
             return(.(call_sym)(...))
           }
-          fn <- orig
+          fn <- f
         } else {
-          fn <- orig
+          fn <- f
           environment(fn) <- env
         }
         # The binding differs from `f` (or an enclosing call left one behind):

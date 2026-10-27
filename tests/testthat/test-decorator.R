@@ -169,10 +169,17 @@ test_that("errors in a decorator's own code are reported against the decorator",
 })
 
 test_that("decorators named like internal symbols still work", {
-  for (nm in c("f", "identical", "holder", "env", "orig")) {
+  for (nm in c("f", "identical", "holder", "env", "f_env")) {
     call_style <- decorator(function(f, ...) f(...) + 1, name = nm)
     factory <- decorator(function(f) function(...) f(...) + 1, name = nm)
     expect_equal((call_style %@% function(x) x)(1), 2)
     expect_equal((factory %@% function(x) x)(1), 2)
   }
+})
+
+test_that("primitives can be decorated", {
+  total <- decorator(function(f, ...) f(...) + 1) %@% sum
+  expect_equal(total(1, 2), 4)
+  neg <- decorator(function(f) function(...) -f(...)) %@% sum
+  expect_equal(neg(1, 2), -3)
 })
