@@ -8,3 +8,4 @@
 ^_quarto$
 ^data-raw$
 ^cran-comments\.md$
+^\.codegraph$

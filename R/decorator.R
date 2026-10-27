@@ -309,6 +309,12 @@ forward_formals <- function(f, invoke) {
 #'
 #' @param lhs A decorator.
 #' @param rhs A function, or another decorator to compose with.
+#' @param name The name to give the decorated function, for
+#'   `decorator_context()$name`. Normally the name is read from `rhs` when it is
+#'   a symbol, so you only need this for an anonymous function. It is also what
+#'   the development version of S7's `:=` supplies:
+#'   `add_one := dec %@% function(x) x + 1` names the function `add_one`. It has
+#'   no effect when `rhs` is a decorator.
 #' @return The decorated function, or a composed decorator if `rhs` is
 #'   itself a decorator.
 #' @export
@@ -317,7 +323,7 @@ forward_formals <- function(f, invoke) {
 #' @examples
 #' loud <- decorator(function(f, ...) toupper(f(...))) %@% function() "hi"
 #' loud()
-`%@%` <- function(lhs, rhs) {
+`%@%` <- function(lhs, rhs, name = NULL) {
   if (!is.function(lhs)) {
     stop("Left-hand side of `%@%` must be a decorator.", call. = FALSE)
   }
@@ -328,7 +334,12 @@ forward_formals <- function(f, invoke) {
   if (!is.function(rhs)) {
     stop("Right-hand side of `%@%` must be a function.", call. = FALSE)
   }
-  fn_name <- binding_name()
+  if (!is.null(name) && !(is.character(name) && length(name) == 1L && !is.na(name))) {
+    stop("`name` must be a single string.", call. = FALSE)
+  }
+  # An explicit name wins, then one set by `decorate()`, then the symbol `rhs`
+  # was written as.
+  fn_name <- name %||% binding_name()
   if (is.null(fn_name)) {
     e <- substitute(rhs)
     fn_name <- if (is.symbol(e)) as.character(e)

@@ -40,7 +40,7 @@ adorn adds roughly a microsecond to each call, and about the same again for
 each decorator you stack. A plain function call takes about a tenth of that. The
 exact numbers depend on your machine, so measure your own.
 
-```{r bench, eval = FALSE}
+```r
 null_dec <- decorator(function(f, ...) f(...))
 fast <- function(x) x + 1
 decorated <- null_dec %@% fast
@@ -107,7 +107,7 @@ stacked decorator, because each level looks outward through the levels above it.
 Asking for the context on every call, in four stacked decorators, costs several
 times as much as the decorators themselves:
 
-```{r context-bench, eval = FALSE}
+```r
 per_call <- decorator(function(f, ...) {
   name <- decorator_context()$name
   f(...)
@@ -156,6 +156,91 @@ with `FUN` inside `lapply()`, you get the name the function was decorated under.
 If you want a name that follows each call, such as for logging, use call style
 and accept the cost. If you just want a label that identifies the function, ask
 once in a factory.
+
+#### Anonymous functions
+
+A function with no name has nothing to report at setup. `%@%` only sees the
+function, not the variable you assign the result to, so a factory that reads the
+name while it is being decorated gets `"<anonymous>"`:
+
+```{r anonymous-setup}
+setup_name <- decorator(function(f) {
+  name <- decorator_context()$name
+  function(...) {
+    cat("->", name, "\n")
+    f(...)
+  }
+})
+
+anon <- setup_name %@% function(x) x + 1
+invisible(anon(1))
+```
+
+The name exists once the function is called, so ask for it on the first call
+and keep it. This costs one stack lookup, once, and nothing after that:
+
+```{r anonymous-lazy}
+traced <- decorator(function(f) {
+  name <- NULL
+  function(...) {
+    if (is.null(name)) {
+      name <<- decorator_context()$name
+    }
+    cat("->", name, "\n")
+    f(...)
+  }
+})
+
+plus_one <- traced %@% function(x) x + 1
+invisible(plus_one(1))
+```
+
+This has two limits. The first call decides the name, so if the function is later
+called through an alias, it keeps the original name. And a call that carries no
+name, such as `FUN` inside `lapply()`, or `do.call()` with the function itself,
+gives `"<anonymous>"`. If that is the first call, it is the name you keep:
+
+```{r anonymous-weakness}
+fn <- traced %@% function(x) x
+invisible(lapply(1, fn))
+invisible(fn(1))
+```
+
+If you need the right name in those cases, call `decorator_context()` on every
+call, as in call style, and accept the cost.
+
+If you can name the function when you decorate it, the problem goes away. `%@%`
+takes a `name` argument, so the name is known at setup:
+
+```{r anonymous-name}
+setup_name_again <- decorator(function(f) {
+  name <- decorator_context()$name
+  function(...) {
+    cat("->", name, "\n")
+    f(...)
+  }
+})
+
+add_three <- `%@%`(setup_name_again, function(x) x + 3, name = "add_three")
+invisible(add_three(1))
+invisible(lapply(1, add_three))
+```
+
+The development version of S7 has a `:=` operator that fills `name` in from the
+left-hand side, so you do not have to write it out.
+
+```{r anonymous-walrus, eval = FALSE}
+library(S7)
+
+add_two := setup_name_again %@% function(x) x + 2
+invisible(add_two(1))
+#> -> add_two
+invisible(lapply(1, add_two))
+#> -> add_two
+```
+
+`:=` only works with a plain variable on the left, so it does not help for
+`obj$method := ...`; pass `name` directly there.
 
 `decorator_context()` only works inside a decorator and gives an error anywhere
 else:
@@ -216,8 +301,15 @@ n_calls
 ```
 
 One call to `fib(5)` ran the decorator 15 times. If you only want the outermost
-call, give the decorator a guard, or decorate a wrapper that calls an undecorated
-recursive function.
+call, decorate a small wrapper that calls an undecorated recursive function
+instead.
+
+Decorated recursion also uses more of R's call stack. A plain recursive function
+can go about 5,000 levels deep with R's default settings. A decorated one runs
+out at roughly 700 to 800, because every level passes through the decorator's own
+calls as well. Raising `options(expressions = )` helps only a little, since the C
+stack runs out soon after. For deep recursion, decorate a thin entry point and
+keep the recursive part undecorated.
 
 ### Order of stacked decorators
 
@@ -292,6 +384,6 @@ Before you publish a decorator:
 - Does it return `f(...)` directly, or use `withVisible()`, so `invisible()`
   results stay invisible?
 - Does it call `decorator_context()` per call? If you only need a label, call it
-  once in a factory.
+  once in a factory, and for anonymous functions on the first call.
 - Would recursion or stacking change what it does?
 - Does it have a `name`, so errors and `decorators()` read well?

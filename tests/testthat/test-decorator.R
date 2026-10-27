@@ -132,8 +132,14 @@ test_that("inferred names reach decorator_context() and print()", {
   f <- who %@% function() 1
   expect_equal(f(), "who")
 
-  expect_output(print(decorator(function(f, ...) f(...))), "<decorator: decorator>")
-  expect_output(print(decorator(function(f, ...) f(...), name = "mine")), "<decorator: mine>")
+  expect_output(
+    print(decorator(function(f, ...) f(...))),
+    "<decorator: decorator>"
+  )
+  expect_output(
+    print(decorator(function(f, ...) f(...), name = "mine")),
+    "<decorator: mine>"
+  )
 
   lst <- list(who = who)
   g <- lst$who %@% function() 1
@@ -169,7 +175,18 @@ test_that("errors in a decorator's own code are reported against the decorator",
 })
 
 test_that("decorators named like internal symbols still work", {
-  for (nm in c("f", "identical", "holder", "env", "fn", "stand_in", "parent.env", ".holder", ".previous", "if")) {
+  for (nm in c(
+    "f",
+    "identical",
+    "holder",
+    "env",
+    "fn",
+    "stand_in",
+    "parent.env",
+    ".holder",
+    ".previous",
+    "if"
+  )) {
     call_style <- decorator(function(f, ...) f(...) + 1, name = nm)
     factory <- decorator(function(f) function(...) f(...) + 1, name = nm)
     expect_equal((call_style %@% function(x) x)(1), 2)
@@ -225,4 +242,29 @@ test_that("every level of a nested chain reports the outermost call's name", {
   both <- twice %@% spy %@% function(x) x
   both(1)
   expect_equal(seen, c("both", "both"))
+})
+
+test_that("`name` names an anonymous function, including via S7's `:=`", {
+  seen <- NULL
+  at_setup <- decorator(function(f) {
+    seen <<- decorator_context()$name
+    f
+  })
+
+  expect_equal(decorators(at_setup %@% function(x) x), "at_setup")
+  at_setup %@% function(x) x
+  expect_equal(seen, "<anonymous>")
+
+  `%@%`(at_setup, function(x) x, name = "given")
+  expect_equal(seen, "given")
+
+  # An explicit name wins over the symbol `rhs` was written as.
+  fn <- function(x) x
+  `%@%`(at_setup, fn, name = "given")
+  expect_equal(seen, "given")
+  at_setup %@% fn
+  expect_equal(seen, "fn")
+
+  expect_error(`%@%`(at_setup, fn, name = 1), "single string")
+  expect_error(`%@%`(at_setup, fn, name = c("a", "b")), "single string")
 })
