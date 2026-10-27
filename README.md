@@ -135,6 +135,8 @@ If a decorator's own code fails, the error is reported against the decorator,
 for example ``Error in logged(f, ...)``.
 `vignette("writing-decorators")` has fuller examples, including `memoize`,
 `once` and `retry`.
+`vignette("designing-decorators")` covers choosing between the two styles, what
+a decorated call costs, and the mistakes that are easy to make.
 
 ## Decorating existing code: `decorate()`
 
