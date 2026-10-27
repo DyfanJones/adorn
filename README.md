@@ -1,6 +1,7 @@
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/DyfanJones/adorn/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/DyfanJones/adorn/actions/workflows/R-CMD-check.yaml)
 [![Codecov test coverage](https://codecov.io/gh/DyfanJones/adorn/graph/badge.svg)](https://app.codecov.io/gh/DyfanJones/adorn)
+[![R-universe version](https://DyfanJones.r-universe.dev/adorn/badges/version)](https://DyfanJones.r-universe.dev/adorn)
 <!-- badges: end -->
 
 # adorn <img src="man/figures/logo.png" align="right" height="139" alt="adorn hex sticker" />

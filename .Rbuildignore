@@ -7,3 +7,4 @@
 ^altdoc$
 ^_quarto$
 ^data-raw$
+^cran-comments\.md$
