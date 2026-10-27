@@ -268,3 +268,17 @@ test_that("`name` names an anonymous function, including via S7's `:=`", {
   expect_error(`%@%`(at_setup, fn, name = 1), "single string")
   expect_error(`%@%`(at_setup, fn, name = c("a", "b")), "single string")
 })
+
+test_that("decorating adds only a few stack frames per level of recursion", {
+  frames_per_level <- function(dec) {
+    frames <- integer()
+    f <- dec %@% function(k) {
+      frames[length(frames) + 1L] <<- sys.nframe()
+      if (k == 0) 0 else 1 + f(k - 1)
+    }
+    f(3)
+    diff(frames)[1L]
+  }
+  expect_lte(frames_per_level(decorator(function(f, ...) f(...))), 4L)
+  expect_lte(frames_per_level(decorator(function(f) function(...) f(...))), 5L)
+})

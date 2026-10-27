@@ -308,8 +308,10 @@ Decorated recursion also uses more of R's call stack. A plain recursive function
 can go about 5,000 levels deep with R's default settings. A decorated one runs
 out at roughly 700 to 800, because every level passes through the decorator's own
 calls as well. Raising `options(expressions = )` helps only a little, since the C
-stack runs out soon after. For deep recursion, decorate a thin entry point and
-keep the recursive part undecorated.
+stack runs out soon after. Stacking decorators divides the depth further: each
+one adds its own frames, so three decorators leave roughly a third of the depth
+of one. For deep recursion, decorate a thin entry point and keep the recursive
+part undecorated.
 
 ### Order of stacked decorators
 

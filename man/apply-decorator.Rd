@@ -5,7 +5,7 @@
 \alias{\%@\%}
 \title{Apply decorators to a function}
 \usage{
-lhs \%@\% rhs
+`\%@\%`(lhs, rhs, name = NULL)
 }
 \arguments{
 \item{lhs}{A decorator.}

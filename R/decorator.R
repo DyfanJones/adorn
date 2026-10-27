@@ -221,7 +221,9 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     )
   } else {
     # A stand-in with `f`'s signature that always calls the current binding.
-    stand_in <- forward_formals(f, function(...) holder$fn(...))
+    # It calls `holder$fn` directly, with `holder` embedded in the body, so it
+    # takes one frame and works whatever environment it ends up with.
+    stand_in <- forward_formals(f, call("$", holder, quote(fn)))
     stand_name <- avoid("stand_in", call_name)
     assign(stand_name, stand_in, envir = call_env)
     # Marked so `decorator_context()` works while the decorator is set up.
@@ -287,9 +289,10 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
 }
 
 # Build a function with the same formals as `f` whose body calls `invoke`
-# with every formal forwarded. `invoke` is embedded in the body as a literal
-# so the wrapper still works if something (R6, for instance) replaces its
-# enclosing environment.
+# with every formal forwarded. `invoke` is a function or an expression that
+# evaluates to one. Either way it is embedded in the body as a literal, so the
+# wrapper still works if something (R6, for instance) replaces its enclosing
+# environment.
 forward_formals <- function(f, invoke) {
   fmls <- formals(f) %||% formals(args(f))
   nms <- names(fmls)
@@ -317,6 +320,7 @@ forward_formals <- function(f, invoke) {
 #'   no effect when `rhs` is a decorator.
 #' @return The decorated function, or a composed decorator if `rhs` is
 #'   itself a decorator.
+#' @usage `\%@\%`(lhs, rhs, name = NULL)
 #' @export
 #' @name apply-decorator
 #' @aliases %@%
