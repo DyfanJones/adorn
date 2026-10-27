@@ -136,12 +136,9 @@ print.adorn_decorator <- function(x, ...) {
   invisible(x)
 }
 
-# Names the generated `invoke` functions look up in `call_env`, plus the base
-# functions and syntax they call by name. A decorator named like one of these
-# would shadow it, so only those are bound under a mangled name. Everything
-# else is safe: the function being decorated is bound under a name that avoids
-# the decorator's own. (Base functions are called by name rather than embedded
-# as literals because the byte compiler handles them faster that way.)
+# Names that `invoke` looks up in `call_env`, including the base functions it
+# calls by name (faster under the byte compiler than embedded literals). A
+# decorator with one of these names is bound under a mangled name instead.
 reserved_names <- c(
   ".holder", ".previous", ".previous_env",
   "parent.env", "parent.frame", "identical",
@@ -158,7 +155,7 @@ avoid <- function(name, taken) if (identical(name, taken)) paste0(".", name) els
 
 decorate_function <- function(f, wrapper, style, config, dec_name) {
   dec_name <- dec_name %||% "decorator"
-  # Bake the configured parameters into the wrapper's defaults.
+  # Bake configured parameters into the wrapper's defaults.
   w <- wrapper
   if (length(config)) {
     quoted <- lapply(config, function(v) {
@@ -167,49 +164,40 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     formals(w)[names(config)] <- quoted
   }
 
-  # The name known when decorating (from `%@%`), used until a call reveals
-  # the name the function is actually called by.
+  # Used until a call reveals the name the function is called by.
   static_name <- binding_name() %||% "<anonymous>"
   ctx <- list(name = static_name, decorator = dec_name, fn = f)
 
-  # Frameworks such as R6 give each method a new enclosing environment (the
-  # object). The decorated function carries that environment, but `f` would
-  # still have the old one, so at call time `f` is re-pointed at whatever
-  # environment the wrapper currently has.
-  # Primitives have no environment; the decorated function then closes over
-  # `baseenv()` (see `forward_formals()`), which is what gets compared.
+  # R6 gives each method a new enclosing environment (the object), so at call
+  # time `f` is re-pointed at the wrapper's current environment. Primitives
+  # have none, so `baseenv()` is compared (see `forward_formals()`).
   f_env <- environment(f) %||% baseenv()
 
   holder <- new.env(parent = emptyenv())
   holder$fn <- f
-  # The environment `holder$fn` is currently bound to.
+  # Environment `holder$fn` is currently bound to.
   holder$env <- f_env
-  # Set when this decoration is itself handed to another decorator.
+  # TRUE once another decorator wraps this decoration.
   holder$wrapped <- FALSE
 
-  # The decorator's code is called under the decorator's own name, so an
-  # error raised in it reports `logged(f, ...)` rather than an internal call,
-  # with nothing to intercept. The name is bound in a small environment that
-  # `invoke` closes over, along with everything `invoke` needs, so a decorator
-  # called `f` or `identical` cannot shadow any of it. Only names `invoke`
-  # itself relies on (see `reserved_names`) get a mangled binding.
+  # The wrapper is called under the decorator's own name so errors report
+  # `logged(f, ...)` rather than an internal call. Everything `invoke` needs
+  # lives in `call_env`, so a decorator named `f` cannot shadow it.
   call_env <- new.env(parent = baseenv())
   call_name <- if (dec_name %in% reserved_names) paste0(".", dec_name) else dec_name
   assign(call_name, w, envir = call_env)
   call_sym <- as.name(call_name)
-  # The decorated function is passed on as `f`, unless the decorator is `f`.
+  # The decorated function is passed as `f`, unless the decorator is `f`.
   arg_name <- avoid("f", call_name)
   arg_sym <- as.name(arg_name)
   assign(arg_name, f, envir = call_env)
   assign(".holder", holder, envir = call_env)
 
   if (style == "call") {
-    # This is the hot path: everything here runs on every call of the
-    # decorated function, so it keeps no bookkeeping at all.
+    # Hot path: runs on every call, so no bookkeeping.
     invoke <- eval(
       bquote(function(...) {
-        # `parent.frame()` is the decorated function's own frame, so its
-        # parent is the environment that function currently closes over.
+        # The parent of the decorated function's frame is its current closure.
         if (identical(parent.env(parent.frame()), .(f_env))) {
           .(call_sym)(.(arg_sym), ...)
         } else {
@@ -220,13 +208,12 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
       call_env
     )
   } else {
-    # A stand-in with `f`'s signature that always calls the current binding.
-    # It calls `holder$fn` directly, with `holder` embedded in the body, so it
-    # takes one frame and works whatever environment it ends up with.
+    # Stand-in with `f`'s signature that calls the current `holder$fn`. Having
+    # `holder` embedded in its body keeps it to one frame in any environment.
     stand_in <- forward_formals(f, call("$", holder, quote(fn)))
     stand_name <- avoid("stand_in", call_name)
     assign(stand_name, stand_in, envir = call_env)
-    # Marked so `decorator_context()` works while the decorator is set up.
+    # Marked so `decorator_context()` works during setup.
     setup <- eval(bquote(function() .(call_sym)(.(as.name(stand_name)))), call_env)
     attr(setup, "adorn_ctx") <- ctx
     attr(setup, "adorn_setup") <- TRUE
@@ -237,20 +224,17 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
         call. = FALSE
       )
     }
-    # From here the name refers to the function the decorator returned.
+    # From here the name refers to the returned function.
     assign(call_name, run, envir = call_env)
     invoke <- eval(
       bquote(function(...) {
         env <- parent.env(parent.frame())
-        # The stand-in already calls the right binding when it is bound to
-        # this environment, which is almost always.
+        # Usual case: the stand-in is already bound to this environment.
         bound <- .(holder)$env
         if (identical(env, bound)) {
           return(.(call_sym)(...))
         }
-        # Otherwise (R6 objects, or an enclosing call left another binding
-        # behind) point the stand-in at this environment for the duration of
-        # the call.
+        # Otherwise (e.g. R6 objects) rebind the stand-in for this call.
         .previous <- .holder$fn
         .previous_env <- .holder$env
         .holder$fn <- .(with_env)(.(arg_sym), env)
@@ -288,11 +272,9 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   out
 }
 
-# Build a function with the same formals as `f` whose body calls `invoke`
-# with every formal forwarded. `invoke` is a function or an expression that
-# evaluates to one. Either way it is embedded in the body as a literal, so the
-# wrapper still works if something (R6, for instance) replaces its enclosing
-# environment.
+# Build a function with `f`'s formals whose body calls `invoke` with every
+# formal forwarded. `invoke` (a function or expression) is embedded as a
+# literal, so the result survives its environment being replaced (e.g. by R6).
 forward_formals <- function(f, invoke) {
   fmls <- formals(f) %||% formals(args(f))
   nms <- names(fmls)
@@ -341,8 +323,7 @@ forward_formals <- function(f, invoke) {
   if (!is.null(name) && !(is.character(name) && length(name) == 1L && !is.na(name))) {
     stop("`name` must be a single string.", call. = FALSE)
   }
-  # An explicit name wins, then one set by `decorate()`, then the symbol `rhs`
-  # was written as.
+  # Precedence: explicit `name`, then `decorate()`, then the symbol `rhs`.
   fn_name <- name %||% binding_name()
   if (is.null(fn_name)) {
     e <- substitute(rhs)
@@ -351,8 +332,8 @@ forward_formals <- function(f, invoke) {
   with_binding_name(fn_name, lhs(rhs))
 }
 
-# Name an unnamed decorator after the expression it was written as. An
-# explicit `name` given to `decorator()` is never overwritten.
+# Name an unnamed decorator after the expression it was written as; an
+# explicit `name` is kept.
 name_decorator <- function(dec, expr) {
   if (!inherits(dec, "adorn_decorator")) {
     return(dec)

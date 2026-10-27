@@ -75,8 +75,7 @@ check_decorator <- function(decorator) {
   invisible(decorator)
 }
 
-# Decorate `fn` while telling the decorator which name it belongs to, so
-# `decorator_context()$name` is meaningful where there is no call to read.
+# Decorate `fn`, recording `name` for `decorator_context()$name`.
 apply_named <- function(decorator, fn, name) {
   check_decorator(decorator)
   with_binding_name(name, decorator(fn))
@@ -110,9 +109,8 @@ S7::method(decorate, S7::class_character) <- function(
   decorate_s3_method(target, decorator, class, envir)
 }
 
-# Name of the S3 generic a function dispatches for, from its `UseMethod()`
-# call, or NULL. Lets `decorate(print, "money") <- d` work from the function
-# alone, since the name it was assigned to is not available.
+# Name of the S3 generic `fn` dispatches for, read from its `UseMethod()` call,
+# or NULL. Needed because `decorate(print, "money") <- d` only sees the function.
 s3_generic_name <- function(fn) {
   find <- function(x) {
     if (is.call(x)) {
@@ -137,8 +135,7 @@ decorate_s3_method <- function(generic, decorator, class, envir) {
   method_name <- paste(generic, class, sep = ".")
   method <- utils::getS3method(generic, class, envir = envir)
   decorated <- apply_named(decorator, method, method_name)
-  # A method defined in `envir` is found there before the registry, so
-  # replace that copy too.
+  # A copy in `envir` is found before the registry, so replace it too.
   if (exists(method_name, envir = envir, inherits = FALSE)) {
     assign(method_name, decorated, envir = envir)
   }
@@ -146,7 +143,7 @@ decorate_s3_method <- function(generic, decorator, class, envir) {
   invisible(decorated)
 }
 
-# The S4 and S7 work is shared by `decorate()` and `decorate<-`.
+# S4 and S7 helpers shared by `decorate()` and `decorate<-`.
 decorate_s4_method <- function(target, decorator, signature, where) {
   if (missing(signature)) {
     stop("Supply the S4 `signature` of the method to decorate.", call. = FALSE)
@@ -154,7 +151,7 @@ decorate_s4_method <- function(target, decorator, signature, where) {
   generic <- as.character(target@generic)
   method <- methods::getMethod(generic, signature)
   fn <- method@.Data
-  # S4 keeps adorn's bookkeeping on the method object, not its function.
+  # S4 keeps the decoration metadata on the method object, not the function.
   attr(fn, "adorn") <- attr(method, "adorn")
   decorated <- apply_named(decorator, fn, generic)
   methods::setMethod(generic, signature, decorated, where = where)
@@ -171,9 +168,8 @@ decorate_s7_method <- function(target, decorator, class) {
   invisible(decorated)
 }
 
-# Find an R6 method on `gen` or, failing that, on the classes it inherits
-# from. `field` is the generator's list (public_methods, private_methods or
-# active) and `where` the matching name used in error messages.
+# Find an R6 method on `gen` or its parents. `field` is the generator's list
+# (e.g. `public_methods`) and `where` its name for error messages.
 find_r6_method <- function(gen, name, field, where) {
   gen_name <- gen$classname %||% "<generator>"
   while (!is.null(gen)) {

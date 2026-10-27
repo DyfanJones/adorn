@@ -1,6 +1,6 @@
-# The name a function was called by, taken from the call that invoked it:
-# `fib(1)` -> "fib", `obj$method(1)` or `pkg::fn(1)` -> "method" / "fn".
-# Anything else (anonymous calls, `FUN` inside lapply) uses `fallback`.
+# The name a function was called by: `fib(1)` -> "fib", `obj$method(1)` ->
+# "method", `pkg::fn(1)` -> "fn". Anything else (anonymous calls, `FUN` in
+# lapply) gives `fallback`.
 name_from_call <- function(call, fallback) {
   head <- if (is.call(call)) call[[1L]]
   if (is.call(head) && length(head) == 3L) {
@@ -16,11 +16,9 @@ name_from_call <- function(call, fallback) {
   fallback
 }
 
-# Dynamic state shared between `%@%` and running decorators. Only the name
-# being bound lives here: running decorators keep no stack of their own. A
-# decorated function's `invoke` carries its static context as an attribute, so
-# the contexts in effect are found by scanning the call stack, and only when
-# something asks (`decorator_context()` or an error handler).
+# Holds the name being bound, for `%@%` and `decorate()`. Running decorators
+# keep no stack: each `invoke` carries its context as an attribute, and the
+# call stack is scanned only when `decorator_context()` asks.
 state <- new.env(parent = emptyenv())
 state$binding_name <- NULL
 
@@ -33,12 +31,10 @@ with_binding_name <- function(name, expr) {
   expr
 }
 
-# The innermost decorator running at or below frame `from`, or NULL. Scanning
-# from the top stops at the first hit, so the cost does not grow with the
-# depth of the call stack. The entry holds the decorator's static context, the
-# frame of the decorated function's call (0 while a factory-style decorator is
-# still being set up), the decoration's `holder` and the holder of the
-# decorated function it wraps (`inner`), if that was itself decorated.
+# The innermost decorator running at or below frame `from`, or NULL. The entry
+# holds the static context, the frame of the decorated call (0 while a
+# factory-style decorator is being set up), the decoration's `holder`, and the
+# `inner` holder if the wrapped function was itself decorated.
 find_context <- function(from) {
   for (i in from:1L) {
     fn <- sys.function(i)
@@ -58,15 +54,10 @@ find_context <- function(from) {
   NULL
 }
 
-# The name of the function an entry is running. A function called by another
-# decorator keeps the name that decorator resolved rather than the `f(...)`
-# call inside its wrapper, so every level of a chain reports the name of the
-# outermost call. Looking outward only happens when the function was handed to
-# a decorator, which `decorate_function()` records on the holder. The result
-# is then cached in the frame of the call it belongs to, so each level of a
-# chain is resolved once and the next one down finds it there. The frame is
-# gone when the call returns, so nothing needs clearing. Functions that were
-# never wrapped skip all of this.
+# The name of the function an entry is running. In a chain of decorators every
+# level reports the name of the outermost call, not the `f(...)` inside its
+# wrapper. Only wrapped functions look outward; the result is cached in the
+# call's frame so each level is resolved once.
 context_name <- function(entry) {
   if (entry$frame == 0L) {
     return(entry$ctx$name)
