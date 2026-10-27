@@ -157,73 +157,87 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   # still have the old one, so at call time `f` is re-pointed at whatever
   # environment the wrapper currently has.
   f_env <- environment(f)
-  rebind <- function(caller) {
-    env <- environment(caller)
-    if (is.null(f_env) || is.null(env) || identical(env, f_env)) {
-      return(f)
-    }
-    environment(f) <- env
-    f
-  }
 
   holder <- new.env(parent = emptyenv())
   holder$fn <- f
+  holder$swapped <- FALSE
+  # Set when this decoration is itself handed to another decorator.
+  holder$wrapped <- FALSE
 
   if (style == "call") {
-    run <- NULL
+    handler <- error_handler(quote(w(fn, ...)), dec_name)
+    # This is the hot path: everything here runs on every call of the
+    # decorated function, so it keeps no bookkeeping beyond the handler.
+    invoke <- function(...) {
+      # `parent.frame()` is the decorated function's own frame, so its parent
+      # is the environment that function currently closes over.
+      env <- parent.env(parent.frame())
+      fn <- if (is.null(f_env) || is.null(env) || identical(env, f_env)) {
+        f
+      } else {
+        environment(f) <- env
+        f
+      }
+      withCallingHandlers(w(fn, ...), error = handler)
+    }
   } else {
     # A stand-in with `f`'s signature that always calls the current binding.
     stand_in <- forward_formals(f, function(...) holder$fn(...))
-    push_context(ctx)
-    on.exit(pop_context())
-    run <- with_decorator_errors(w(stand_in), quote(w(stand_in)), dec_name, static_name)
+    # Marked so `decorator_context()` works while the decorator is set up.
+    setup <- function() w(stand_in)
+    attr(setup, "adorn_ctx") <- ctx
+    attr(setup, "adorn_setup") <- TRUE
+    run <- withCallingHandlers(
+      setup(),
+      error = error_handler(quote(w(stand_in)), dec_name)
+    )
     if (!is.function(run)) {
       stop(
         sprintf("Decorator `%s` must return a function.", dec_name),
         call. = FALSE
       )
     }
-  }
-
-  invoke <- function(...) {
-    caller <- sys.function(-1L)
-    # When another decorator is calling us, keep the name it resolved rather
-    # than the `f(...)` call inside its wrapper.
-    outer <- if (length(state$contexts)) state$contexts[[1L]]
-    ctx$name <- if (
-      !is.null(outer) &&
-        identical(outer$fn, caller, ignore.environment = TRUE)
-    ) {
-      outer$name
-    } else {
-      name_from_call(sys.call(-1L), static_name)
+    handler <- error_handler(quote(run(...)), dec_name)
+    invoke <- function(...) {
+      env <- parent.env(parent.frame())
+      if (is.null(f_env) || is.null(env) || identical(env, f_env)) {
+        if (!holder$swapped) {
+          return(withCallingHandlers(run(...), error = handler))
+        }
+        fn <- f
+      } else {
+        fn <- f
+        environment(fn) <- env
+      }
+      # The binding differs from `f` (or an enclosing call left one behind):
+      # point the stand-in at it for the duration of this call.
+      previous <- holder$fn
+      was_swapped <- holder$swapped
+      holder$fn <- fn
+      holder$swapped <- !identical(env, f_env)
+      on.exit({
+        holder$fn <- previous
+        holder$swapped <- was_swapped
+      })
+      withCallingHandlers(run(...), error = handler)
     }
-    push_context(ctx)
-    on.exit(pop_context(), add = TRUE)
-    fn <- rebind(caller)
-    if (style == "call") {
-      return(with_decorator_errors(
-        w(fn, ...),
-        quote(w(fn, ...)),
-        dec_name,
-        ctx$name
-      ))
-    }
-    previous <- holder$fn
-    holder$fn <- fn
-    on.exit(holder$fn <- previous, add = TRUE)
-    with_decorator_errors(run(...), quote(run(...)), dec_name, ctx$name)
   }
+  attr(invoke, "adorn_ctx") <- ctx
+  attr(invoke, "adorn_holder") <- holder
 
   out <- forward_formals(f, invoke)
 
   prev <- attr(f, "adorn")
+  if (!is.null(prev$holder)) {
+    prev$holder$wrapped <- TRUE
+  }
   attributes(out) <- c(
     attributes(f)[setdiff(names(attributes(f)), "adorn")],
     list(
       adorn = list(
         original = prev$original %||% f,
-        stack = c(dec_name, prev$stack)
+        stack = c(dec_name, prev$stack),
+        holder = holder
       )
     )
   )
@@ -235,29 +249,30 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
 # decorator, naming the function it was wrapping. Only errors whose call is
 # `wrapper_call` are touched; errors from `f` and from stop(call. = FALSE)
 # pass through unchanged. The condition keeps its classes and the original is
-# kept as `parent`.
-with_decorator_errors <- function(expr, wrapper_call, dec_name, fn_name) {
-  withCallingHandlers(
-    expr,
-    error = function(e) {
-      if (!identical(conditionCall(e), wrapper_call)) {
-        return()
-      }
-      stop(structure(
-        class = c("adorn_decorator_error", class(e)),
-        list(
-          message = sprintf(
-            "%s\nDecorator `%s` was wrapping `%s()`.",
-            conditionMessage(e),
-            dec_name,
-            fn_name
-          ),
-          call = as.call(list(as.name(dec_name))),
-          parent = e
-        )
-      ))
+# kept as `parent`. The handler is built once per decoration, not per call.
+error_handler <- function(wrapper_call, dec_name) {
+  force(wrapper_call)
+  force(dec_name)
+  function(e) {
+    if (!identical(conditionCall(e), wrapper_call)) {
+      return()
     }
-  )
+    entry <- find_context(sys.nframe())
+    fn_name <- if (!is.null(entry)) context_name(entry)
+    stop(structure(
+      class = c("adorn_decorator_error", class(e)),
+      list(
+        message = sprintf(
+          "%s\nDecorator `%s` was wrapping `%s()`.",
+          conditionMessage(e),
+          dec_name,
+          fn_name %||% "<anonymous>"
+        ),
+        call = as.call(list(as.name(dec_name))),
+        parent = e
+      )
+    ))
+  }
 }
 
 # Build a function with the same formals as `f` whose body calls `invoke`

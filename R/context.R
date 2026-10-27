@@ -3,12 +3,11 @@
 # Anything else (anonymous calls, `FUN` inside lapply) uses `fallback`.
 name_from_call <- function(call, fallback) {
   head <- if (is.call(call)) call[[1L]]
-  if (
-    is.call(head) &&
-      length(head) == 3L &&
-      as.character(head[[1L]])[[1L]] %in% c("$", "::", ":::", "@")
-  ) {
-    head <- head[[3L]]
+  if (is.call(head) && length(head) == 3L) {
+    op <- head[[1L]]
+    if (identical(op, quote(`$`)) || identical(op, quote(`::`)) || identical(op, quote(`:::`)) || identical(op, quote(`@`))) {
+      head <- head[[3L]]
+    }
   }
   if (is.symbol(head) || is.character(head)) {
     name <- as.character(head)
@@ -17,10 +16,13 @@ name_from_call <- function(call, fallback) {
   fallback
 }
 
-# Dynamic state shared between `%@%` and running decorators.
+# Dynamic state shared between `%@%` and running decorators. Only the name
+# being bound lives here: running decorators keep no stack of their own. A
+# decorated function's `invoke` carries its static context as an attribute, so
+# the contexts in effect are found by scanning the call stack, and only when
+# something asks (`decorator_context()` or an error handler).
 state <- new.env(parent = emptyenv())
 state$binding_name <- NULL
-state$contexts <- list()
 
 binding_name <- function() state$binding_name
 
@@ -31,14 +33,53 @@ with_binding_name <- function(name, expr) {
   expr
 }
 
-push_context <- function(ctx) {
-  state$contexts <- c(list(ctx), state$contexts)
-  invisible()
+# The innermost decorator running at or below frame `from`, or NULL. Scanning
+# from the top stops at the first hit, so the cost does not grow with the
+# depth of the call stack. The entry holds the decorator's static context, the
+# frame of the decorated function's call (0 while a factory-style decorator is
+# still being set up) and the decoration's `holder`.
+find_context <- function(from) {
+  for (i in from:1L) {
+    fn <- sys.function(i)
+    ctx <- attr(fn, "adorn_ctx", exact = TRUE)
+    if (!is.null(ctx)) {
+      if (isTRUE(attr(fn, "adorn_setup", exact = TRUE))) {
+        return(list(ctx = ctx, frame = 0L, holder = NULL))
+      }
+      return(list(
+        ctx = ctx,
+        frame = i - 1L,
+        holder = attr(fn, "adorn_holder", exact = TRUE)
+      ))
+    }
+  }
+  NULL
 }
 
-pop_context <- function() {
-  state$contexts <- state$contexts[-1L]
-  invisible()
+# The name of the function an entry is running. A function called by another
+# decorator keeps the name that decorator resolved rather than the `f(...)`
+# call inside its wrapper. That only happens when the function was handed to
+# a decorator, which `decorate_function()` records on the holder, so most
+# calls never look past their own entry.
+context_name <- function(entry) {
+  while (entry$frame != 0L && isTRUE(entry$holder$wrapped)) {
+    outer <- find_context(entry$frame - 1L)
+    if (
+      is.null(outer) ||
+        !identical(
+          outer$ctx$fn,
+          sys.function(entry$frame),
+          ignore.environment = TRUE
+        )
+    ) {
+      break
+    }
+    entry <- outer
+  }
+  if (entry$frame == 0L) {
+    return(entry$ctx$name)
+  }
+  name_from_call(sys.call(entry$frame), entry$ctx$name)
 }
 
 #' Information about the function being decorated
@@ -58,11 +99,14 @@ pop_context <- function() {
 #' hello <- who %@% function() "hi"
 #' hello()
 decorator_context <- function() {
-  if (length(state$contexts) == 0L) {
+  entry <- find_context(sys.nframe())
+  if (is.null(entry)) {
     stop(
       "`decorator_context()` can only be used inside a decorator.",
       call. = FALSE
     )
   }
-  state$contexts[[1L]]
+  ctx <- entry$ctx
+  ctx$name <- context_name(entry)
+  ctx
 }
