@@ -1,0 +1,97 @@
+/*-- scss:defaults --*/
+$navy: #2b2d42;
+$crimson: #d62839;
+
+$primary: $crimson;
+$link-color: $crimson;
+$navbar-bg: $navy;
+$navbar-fg: #ffffff;
+$navbar-hover-color: #ffffff;
+$code-color: $navy;
+$code-bg: #f4f5f9;
+$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+$font-family-monospace: "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+$line-height-base: 1.65;
+$border-radius: 0.5rem;
+
+/*-- scss:rules --*/
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+h1, h2, h3, h4 {
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+h1.title {
+  margin-bottom: 0.5rem;
+}
+
+.content {
+  max-width: 52rem;
+}
+
+h2 {
+  margin-top: 2.2rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+}
+
+/* Code blocks */
+div.sourceCode, pre {
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-left: 4px solid $crimson;
+  border-radius: $border-radius;
+  box-shadow: 0 1px 3px rgba(43, 45, 66, 0.06);
+}
+
+code:not(pre code) {
+  padding: 0.1em 0.35em;
+  border-radius: 0.3rem;
+}
+
+/* Blockquote used for the "early development" note */
+blockquote {
+  border-left: 4px solid $crimson;
+  background: rgba(214, 40, 57, 0.06);
+  border-radius: 0 $border-radius $border-radius 0;
+  padding: 0.75rem 1rem;
+  margin: 1.5rem 0;
+  color: inherit;
+}
+
+blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* README header: logo on the right, badges as a tidy row */
+img[alt="adorn hex sticker"] {
+  filter: drop-shadow(0 6px 12px rgba(43, 45, 66, 0.25));
+}
+
+p > a > img[src*="badge"] {
+  margin: 0 0.15rem 0.25rem 0;
+}
+
+/* Sidebar */
+.sidebar-navigation .sidebar-item a.active {
+  color: $crimson;
+  font-weight: 600;
+}
+
+.sidebar-title, .navbar-brand {
+  font-weight: 700;
+}
+
+.navbar-brand-container img {
+  max-height: 2rem;
+}
+
+/* Tables and footer */
+table {
+  font-size: 0.95rem;
+}
+
+.nav-footer {
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  font-size: 0.9rem;
+}

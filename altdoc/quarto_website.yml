@@ -10,7 +10,12 @@ knitr:
 
 website:
   title: "$ALTDOC_PACKAGE_NAME"
+  favicon: logo.png
+  page-footer:
+    left: "MIT licensed. Built with altdoc and Quarto."
+    right: "$ALTDOC_PACKAGE_NAME"
   navbar:
+    logo: logo.png
     search: true
     right:
       - icon: github
@@ -39,7 +44,14 @@ website:
 format:
   html:
     code-link: true
+    code-copy: true
+    code-overflow: wrap
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    smooth-scroll: true
+    highlight-style: a11y
     theme:
-      light: cosmo
-      dark: darkly
+      light: [flatly, custom.scss]
+      dark: [darkly, dark.scss, custom.scss]
 
