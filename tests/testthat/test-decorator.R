@@ -143,20 +143,36 @@ test_that("inferred names reach decorator_context() and print()", {
   expect_equal(decorators(who %@% h), "who")
 })
 
-test_that("errors in a decorator's own code name the decorator and function", {
+test_that("errors in a decorator's own code are reported against the decorator", {
   logged <- decorator(function(f, ...) {
     f(...)
     not_defined
   })
   double <- logged %@% function(x) x * 2
   err <- tryCatch(double(2), error = identity)
-  expect_s3_class(err, "adorn_decorator_error")
   expect_match(conditionMessage(err), "not_defined")
-  expect_match(conditionMessage(err), "Decorator `logged` was wrapping `double()`", fixed = TRUE)
-  expect_identical(conditionCall(err), quote(logged()))
+  expect_identical(conditionCall(err), quote(logged(f, ...)))
 
-  # Errors from the decorated function itself are left alone.
+  # Errors from the decorated function itself keep their own call.
   inner <- logged %@% function(x) stop("inner")
   err <- tryCatch(inner(1), error = identity)
-  expect_false(inherits(err, "adorn_decorator_error"))
+  expect_match(conditionMessage(err), "inner")
+  expect_false(identical(conditionCall(err), quote(logged(f, ...))))
+
+  # Factory style, at decoration and at call time.
+  setup_fails <- decorator(function(f) stop("setup"))
+  err <- tryCatch(setup_fails %@% function() 1, error = identity)
+  expect_identical(conditionCall(err), quote(setup_fails(stand_in)))
+  call_fails <- decorator(function(f) function(...) stop("call"))
+  err <- tryCatch((call_fails %@% function() 1)(), error = identity)
+  expect_identical(conditionCall(err), quote(call_fails(...)))
+})
+
+test_that("decorators named like internal symbols still work", {
+  for (nm in c("f", "identical", "holder", "env", "orig")) {
+    call_style <- decorator(function(f, ...) f(...) + 1, name = nm)
+    factory <- decorator(function(f) function(...) f(...) + 1, name = nm)
+    expect_equal((call_style %@% function(x) x)(1), 2)
+    expect_equal((factory %@% function(x) x)(1), 2)
+  }
 })

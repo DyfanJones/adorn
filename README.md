@@ -130,8 +130,8 @@ ping()
 | Options | Arguments after `...` (call style) or after `f` (factory style) |
 | The function's name | `decorator_context()$name` |
 
-If a decorator's own code fails, the error names the decorator and the function
-it was wrapping, for example ``Decorator `logged` was wrapping `double()`.``
+If a decorator's own code fails, the error is reported against the decorator,
+for example ``Error in logged(f, ...)``.
 `vignette("writing-decorators")` has fuller examples, including `memoize`,
 `once` and `retry`.
 
