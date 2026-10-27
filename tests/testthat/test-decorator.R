@@ -132,8 +132,14 @@ test_that("inferred names reach decorator_context() and print()", {
   f <- who %@% function() 1
   expect_equal(f(), "who")
 
-  expect_output(print(decorator(function(f, ...) f(...))), "<decorator: decorator>")
-  expect_output(print(decorator(function(f, ...) f(...), name = "mine")), "<decorator: mine>")
+  expect_output(
+    print(decorator(function(f, ...) f(...))),
+    "<decorator: decorator>"
+  )
+  expect_output(
+    print(decorator(function(f, ...) f(...), name = "mine")),
+    "<decorator: mine>"
+  )
 
   lst <- list(who = who)
   g <- lst$who %@% function() 1
@@ -143,20 +149,136 @@ test_that("inferred names reach decorator_context() and print()", {
   expect_equal(decorators(who %@% h), "who")
 })
 
-test_that("errors in a decorator's own code name the decorator and function", {
+test_that("errors in a decorator's own code are reported against the decorator", {
   logged <- decorator(function(f, ...) {
     f(...)
     not_defined
   })
   double <- logged %@% function(x) x * 2
   err <- tryCatch(double(2), error = identity)
-  expect_s3_class(err, "adorn_decorator_error")
   expect_match(conditionMessage(err), "not_defined")
-  expect_match(conditionMessage(err), "Decorator `logged` was wrapping `double()`", fixed = TRUE)
-  expect_identical(conditionCall(err), quote(logged()))
+  expect_identical(conditionCall(err), quote(logged(f, ...)))
 
-  # Errors from the decorated function itself are left alone.
+  # Errors from the decorated function itself keep their own call.
   inner <- logged %@% function(x) stop("inner")
   err <- tryCatch(inner(1), error = identity)
-  expect_false(inherits(err, "adorn_decorator_error"))
+  expect_match(conditionMessage(err), "inner")
+  expect_false(identical(conditionCall(err), quote(logged(f, ...))))
+
+  # Factory style, at decoration and at call time.
+  setup_fails <- decorator(function(f) stop("setup"))
+  err <- tryCatch(setup_fails %@% function() 1, error = identity)
+  expect_identical(conditionCall(err), quote(setup_fails(stand_in)))
+  call_fails <- decorator(function(f) function(...) stop("call"))
+  err <- tryCatch((call_fails %@% function() 1)(), error = identity)
+  expect_identical(conditionCall(err), quote(call_fails(...)))
+})
+
+test_that("decorators named like internal symbols still work", {
+  for (nm in c(
+    "f",
+    "identical",
+    "holder",
+    "env",
+    "fn",
+    "stand_in",
+    "parent.env",
+    ".holder",
+    ".previous",
+    "if"
+  )) {
+    call_style <- decorator(function(f, ...) f(...) + 1, name = nm)
+    factory <- decorator(function(f) function(...) f(...) + 1, name = nm)
+    expect_equal((call_style %@% function(x) x)(1), 2)
+    expect_equal((factory %@% function(x) x)(1), 2)
+  }
+})
+
+test_that("a decorator keeps its own name in errors, whatever it is called", {
+  for (nm in c("f", "invoke", "fn", "stand_in", "holder")) {
+    bad <- decorator(function(f, ...) stop("wrong"), name = nm)
+    err <- tryCatch((bad %@% function(x) x)(1), error = identity)
+    expect_identical(conditionCall(err)[[1L]], as.name(nm))
+  }
+})
+
+test_that("primitives can be decorated", {
+  total <- decorator(function(f, ...) f(...) + 1) %@% sum
+  expect_equal(total(1, 2), 4)
+  neg <- decorator(function(f) function(...) -f(...)) %@% sum
+  expect_equal(neg(1, 2), -3)
+})
+
+test_that("every level of a nested chain reports the outermost call's name", {
+  seen <- character()
+  spy <- decorator(function(f, ...) {
+    seen <<- c(seen, decorator_context()$name)
+    f(...)
+  })
+  inner_only <- spy %@% function(x) x
+  chain <- spy %@% spy %@% spy %@% function(x) x
+
+  chain(1)
+  expect_equal(seen, rep("chain", 3))
+
+  # Calling a function that is also wrapped elsewhere uses its own name.
+  seen <- character()
+  inner_only(1)
+  expect_equal(seen, "inner_only")
+
+  # The cached name belongs to one call: another name next time round.
+  seen <- character()
+  alias <- chain
+  alias(1)
+  chain(1)
+  expect_equal(seen, c(rep("alias", 3), rep("chain", 3)))
+
+  # A wrapper that calls the function twice sees the same name both times.
+  seen <- character()
+  twice <- decorator(function(f, ...) {
+    f(...)
+    f(...)
+  })
+  both <- twice %@% spy %@% function(x) x
+  both(1)
+  expect_equal(seen, c("both", "both"))
+})
+
+test_that("`name` names an anonymous function, including via S7's `:=`", {
+  seen <- NULL
+  at_setup <- decorator(function(f) {
+    seen <<- decorator_context()$name
+    f
+  })
+
+  expect_equal(decorators(at_setup %@% function(x) x), "at_setup")
+  at_setup %@% function(x) x
+  expect_equal(seen, "<anonymous>")
+
+  `%@%`(at_setup, function(x) x, name = "given")
+  expect_equal(seen, "given")
+
+  # An explicit name wins over the symbol `rhs` was written as.
+  fn <- function(x) x
+  `%@%`(at_setup, fn, name = "given")
+  expect_equal(seen, "given")
+  at_setup %@% fn
+  expect_equal(seen, "fn")
+
+  expect_error(`%@%`(at_setup, fn, name = 1), "single string")
+  expect_error(`%@%`(at_setup, fn, name = c("a", "b")), "single string")
+})
+
+test_that("decorating adds only a few stack frames per level of recursion", {
+  frames_per_level <- function(dec) {
+    frames <- integer()
+    f <- dec %@% function(k) {
+      frames[length(frames) + 1L] <<- sys.nframe()
+      if (k == 0) 0 else 1 + f(k - 1)
+    }
+    f(3)
+    diff(frames)[1L]
+  }
+  expect_lte(frames_per_level(decorator(function(f, ...) f(...))), 4L)
+  expect_lte(frames_per_level(decorator(function(f) function(...) f(...))), 5L)
 })

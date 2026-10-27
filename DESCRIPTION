@@ -1,6 +1,6 @@
 Package: adorn
 Title: A Framework for Writing and Applying Function Decorators
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: 
     person("Dyfan", "Jones", , "dyfan.r.jones@gmail.com", role = c("aut", "cre"))
 Description: A framework for creating function decorators in R. Decorators

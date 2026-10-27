@@ -1,6 +1,7 @@
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/DyfanJones/adorn/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/DyfanJones/adorn/actions/workflows/R-CMD-check.yaml)
 [![Codecov test coverage](https://codecov.io/gh/DyfanJones/adorn/graph/badge.svg)](https://app.codecov.io/gh/DyfanJones/adorn)
+[![R-universe version](https://DyfanJones.r-universe.dev/adorn/badges/version)](https://DyfanJones.r-universe.dev/adorn)
 <!-- badges: end -->
 
 # adorn <img src="man/figures/logo.png" align="right" height="139" alt="adorn hex sticker" />
@@ -130,10 +131,12 @@ ping()
 | Options | Arguments after `...` (call style) or after `f` (factory style) |
 | The function's name | `decorator_context()$name` |
 
-If a decorator's own code fails, the error names the decorator and the function
-it was wrapping, for example ``Decorator `logged` was wrapping `double()`.``
+If a decorator's own code fails, the error is reported against the decorator,
+for example ``Error in logged(f, ...)``.
 `vignette("writing-decorators")` has fuller examples, including `memoize`,
 `once` and `retry`.
+`vignette("designing-decorators")` covers choosing between the two styles, what
+a decorated call costs, and the mistakes that are easy to make.
 
 ## Decorating existing code: `decorate()`
 
