@@ -264,6 +264,8 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   }
   attr(invoke, "adorn_ctx") <- ctx
   attr(invoke, "adorn_holder") <- holder
+  # The decoration this one wraps, if `f` was already decorated.
+  attr(invoke, "adorn_inner") <- attr(f, "adorn")$holder
 
   out <- forward_formals(f, invoke)
 

@@ -191,3 +191,38 @@ test_that("primitives can be decorated", {
   neg <- decorator(function(f) function(...) -f(...)) %@% sum
   expect_equal(neg(1, 2), -3)
 })
+
+test_that("every level of a nested chain reports the outermost call's name", {
+  seen <- character()
+  spy <- decorator(function(f, ...) {
+    seen <<- c(seen, decorator_context()$name)
+    f(...)
+  })
+  inner_only <- spy %@% function(x) x
+  chain <- spy %@% spy %@% spy %@% function(x) x
+
+  chain(1)
+  expect_equal(seen, rep("chain", 3))
+
+  # Calling a function that is also wrapped elsewhere uses its own name.
+  seen <- character()
+  inner_only(1)
+  expect_equal(seen, "inner_only")
+
+  # The cached name belongs to one call: another name next time round.
+  seen <- character()
+  alias <- chain
+  alias(1)
+  chain(1)
+  expect_equal(seen, c(rep("alias", 3), rep("chain", 3)))
+
+  # A wrapper that calls the function twice sees the same name both times.
+  seen <- character()
+  twice <- decorator(function(f, ...) {
+    f(...)
+    f(...)
+  })
+  both <- twice %@% spy %@% function(x) x
+  both(1)
+  expect_equal(seen, c("both", "both"))
+})
