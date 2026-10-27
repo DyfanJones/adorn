@@ -169,11 +169,19 @@ test_that("errors in a decorator's own code are reported against the decorator",
 })
 
 test_that("decorators named like internal symbols still work", {
-  for (nm in c("f", "identical", "holder", "env", "f_env")) {
+  for (nm in c("f", "identical", "holder", "env", "fn", "stand_in", "parent.env", ".holder", ".previous", "if")) {
     call_style <- decorator(function(f, ...) f(...) + 1, name = nm)
     factory <- decorator(function(f) function(...) f(...) + 1, name = nm)
     expect_equal((call_style %@% function(x) x)(1), 2)
     expect_equal((factory %@% function(x) x)(1), 2)
+  }
+})
+
+test_that("a decorator keeps its own name in errors, whatever it is called", {
+  for (nm in c("f", "invoke", "fn", "stand_in", "holder")) {
+    bad <- decorator(function(f, ...) stop("wrong"), name = nm)
+    err <- tryCatch((bad %@% function(x) x)(1), error = identity)
+    expect_identical(conditionCall(err)[[1L]], as.name(nm))
   }
 })
 

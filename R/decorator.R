@@ -136,14 +136,25 @@ print.adorn_decorator <- function(x, ...) {
   invisible(x)
 }
 
-# Every name the generated `invoke` functions look up. A decorator named like
-# one of these would shadow it in `call_env`, so it is bound under a mangled
-# name instead.
-invoke_names <- c(
-  "f", "f_env", "holder", "env", "fn", "previous", "was_swapped",
-  "parent.env", "parent.frame", "identical", "environment<-",
-  "on.exit", "return", "{", "if", "<-", "!", "$", "$<-"
+# Names the generated `invoke` functions look up in `call_env`, plus the base
+# functions and syntax they call by name. A decorator named like one of these
+# would shadow it, so only those are bound under a mangled name. Everything
+# else is safe: the function being decorated is bound under a name that avoids
+# the decorator's own. (Base functions are called by name rather than embedded
+# as literals because the byte compiler handles them faster that way.)
+reserved_names <- c(
+  ".holder", ".previous", ".previous_env",
+  "parent.env", "parent.frame", "identical",
+  "{", "if", "<-", "!", "$", "$<-", "on.exit", "return"
 )
+
+with_env <- function(fn, env) {
+  environment(fn) <- env
+  fn
+}
+
+# `name`, unless it is `taken`, in which case a dotted variant.
+avoid <- function(name, taken) if (identical(name, taken)) paste0(".", name) else name
 
 decorate_function <- function(f, wrapper, style, config, dec_name) {
   dec_name <- dec_name %||% "decorator"
@@ -171,23 +182,26 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
 
   holder <- new.env(parent = emptyenv())
   holder$fn <- f
-  holder$swapped <- FALSE
+  # The environment `holder$fn` is currently bound to.
+  holder$env <- f_env
   # Set when this decoration is itself handed to another decorator.
   holder$wrapped <- FALSE
 
   # The decorator's code is called under the decorator's own name, so an
   # error raised in it reports `logged(f, ...)` rather than an internal call,
   # with nothing to intercept. The name is bound in a small environment that
-  # `invoke` closes over; if it would shadow something `invoke` uses, a
-  # mangled name is bound instead.
-  call_env <- new.env(parent = environment())
-  call_name <- if (dec_name %in% invoke_names) {
-    paste0(".", dec_name)
-  } else {
-    dec_name
-  }
+  # `invoke` closes over, along with everything `invoke` needs, so a decorator
+  # called `f` or `identical` cannot shadow any of it. Only names `invoke`
+  # itself relies on (see `reserved_names`) get a mangled binding.
+  call_env <- new.env(parent = baseenv())
+  call_name <- if (dec_name %in% reserved_names) paste0(".", dec_name) else dec_name
   assign(call_name, w, envir = call_env)
   call_sym <- as.name(call_name)
+  # The decorated function is passed on as `f`, unless the decorator is `f`.
+  arg_name <- avoid("f", call_name)
+  arg_sym <- as.name(arg_name)
+  assign(arg_name, f, envir = call_env)
+  assign(".holder", holder, envir = call_env)
 
   if (style == "call") {
     # This is the hot path: everything here runs on every call of the
@@ -196,12 +210,11 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
       bquote(function(...) {
         # `parent.frame()` is the decorated function's own frame, so its
         # parent is the environment that function currently closes over.
-        if (identical(parent.env(parent.frame()), f_env)) {
-          .(call_sym)(f, ...)
+        if (identical(parent.env(parent.frame()), .(f_env))) {
+          .(call_sym)(.(arg_sym), ...)
         } else {
-          f <- f
-          environment(f) <- parent.env(parent.frame())
-          .(call_sym)(f, ...)
+          .(arg_sym) <- .(with_env)(.(arg_sym), parent.env(parent.frame()))
+          .(call_sym)(.(arg_sym), ...)
         }
       }),
       call_env
@@ -209,8 +222,10 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   } else {
     # A stand-in with `f`'s signature that always calls the current binding.
     stand_in <- forward_formals(f, function(...) holder$fn(...))
+    stand_name <- avoid("stand_in", call_name)
+    assign(stand_name, stand_in, envir = call_env)
     # Marked so `decorator_context()` works while the decorator is set up.
-    setup <- eval(bquote(function() .(call_sym)(stand_in)), call_env)
+    setup <- eval(bquote(function() .(call_sym)(.(as.name(stand_name)))), call_env)
     attr(setup, "adorn_ctx") <- ctx
     attr(setup, "adorn_setup") <- TRUE
     run <- setup()
@@ -225,24 +240,22 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     invoke <- eval(
       bquote(function(...) {
         env <- parent.env(parent.frame())
-        if (identical(env, f_env)) {
-          if (!holder$swapped) {
-            return(.(call_sym)(...))
-          }
-          fn <- f
-        } else {
-          fn <- f
-          environment(fn) <- env
+        # The stand-in already calls the right binding when it is bound to
+        # this environment, which is almost always.
+        bound <- .(holder)$env
+        if (identical(env, bound)) {
+          return(.(call_sym)(...))
         }
-        # The binding differs from `f` (or an enclosing call left one behind):
-        # point the stand-in at it for the duration of this call.
-        previous <- holder$fn
-        was_swapped <- holder$swapped
-        holder$fn <- fn
-        holder$swapped <- !identical(env, f_env)
+        # Otherwise (R6 objects, or an enclosing call left another binding
+        # behind) point the stand-in at this environment for the duration of
+        # the call.
+        .previous <- .holder$fn
+        .previous_env <- .holder$env
+        .holder$fn <- .(with_env)(.(arg_sym), env)
+        .holder$env <- env
         on.exit({
-          holder$fn <- previous
-          holder$swapped <- was_swapped
+          .holder$fn <- .previous
+          .holder$env <- .previous_env
         })
         .(call_sym)(...)
       }),
