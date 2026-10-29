@@ -15,7 +15,7 @@
 \item{name}{The name to give the decorated function, for
 \code{decorator_context()$name}. Normally the name is read from \code{rhs} when it is
 a symbol, so you only need this for an anonymous function. It is also what
-the development version of S7's \verb{:=} supplies:
+S7's \verb{:=}, re-exported by adorn, supplies:
 \code{add_one := dec \%@\% function(x) x + 1} names the function \code{add_one}. It has
 no effect when \code{rhs} is a decorator.}
 }

@@ -150,10 +150,10 @@ decorate_s4_method <- function(target, decorator, signature, where) {
     stop("Supply the S4 `signature` of the method to decorate.", call. = FALSE)
   }
   generic <- as.character(target@generic)
-  method <- methods::getMethod(generic, signature)
-  fn <- method@.Data
+  s4_method <- methods::getMethod(generic, signature)
+  fn <- s4_method@.Data
   # S4 keeps the decoration metadata on the method object, not the function.
-  attr(fn, "adorn") <- attr(method, "adorn")
+  attr(fn, "adorn") <- attr(s4_method, "adorn")
   decorated <- apply_named(decorator, fn, generic)
   methods::setMethod(generic, signature, decorated, where = where)
   invisible(decorated)
@@ -163,8 +163,8 @@ decorate_s7_method <- function(target, decorator, class) {
   if (missing(class)) {
     stop("Supply the S7 `class` of the method to decorate.", call. = FALSE)
   }
-  method <- method(target, class)
-  decorated <- apply_named(decorator, method, target@name)
+  current <- method(target, class)
+  decorated <- apply_named(decorator, current, target@name)
   suppressMessages(method(target, class) <- decorated)
   invisible(decorated)
 }

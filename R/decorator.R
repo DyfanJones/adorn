@@ -346,7 +346,7 @@ forward_formals <- function(f, invoke) {
 #' @param name The name to give the decorated function, for
 #'   `decorator_context()$name`. Normally the name is read from `rhs` when it is
 #'   a symbol, so you only need this for an anonymous function. It is also what
-#'   the development version of S7's `:=` supplies:
+#'   S7's `:=`, re-exported by adorn, supplies:
 #'   `add_one := dec %@% function(x) x + 1` names the function `add_one`. It has
 #'   no effect when `rhs` is a decorator.
 #' @return The decorated function, or a composed decorator if `rhs` is
