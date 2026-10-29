@@ -166,6 +166,44 @@ avoid <- function(name, taken) {
   if (identical(name, taken)) paste0(".", name) else name
 }
 
+# Wrapper templates. `fill()` swaps the `.name` placeholders for values with
+# `substitute()`, which is far cheaper than `bquote()` walking the tree in R.
+# The `srcref` that a source-keeping build adds to `function` is dropped so the
+# result prints as the real code.
+no_srcref <- function(x) if (length(x) == 4L) x[-4L] else x
+
+call_template <- no_srcref(quote(function(...) {
+  if (identical(parent.env(parent.frame()), .f_env)) {
+    .call(.arg, ...)
+  } else {
+    .arg <- .with_env(.arg, parent.env(parent.frame()))
+    .call(.arg, ...)
+  }
+}))
+
+setup_template <- no_srcref(quote(function() .call(.stand_in)))
+
+factory_template <- no_srcref(quote(function(...) {
+  env <- parent.env(parent.frame())
+  bound <- .holder_obj$env
+  if (identical(env, bound)) {
+    return(.call(...))
+  }
+  .previous <- .holder$fn
+  .previous_env <- .holder$env
+  .holder$fn <- .with_env(.arg, env)
+  .holder$env <- env
+  on.exit({
+    .holder$fn <- .previous
+    .holder$env <- .previous_env
+  })
+  .call(...)
+}))
+
+fill <- function(template, values, env) {
+  eval(eval(call("substitute", template, values)), env)
+}
+
 decorate_function <- function(f, wrapper, style, config, dec_name) {
   dec_name <- dec_name %||% "decorator"
   # Bake configured parameters into the wrapper's defaults.
@@ -212,16 +250,10 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
 
   if (style == "call") {
     # Hot path: runs on every call, so no bookkeeping.
-    invoke <- eval(
-      bquote(function(...) {
-        # The parent of the decorated function's frame is its current closure.
-        if (identical(parent.env(parent.frame()), .(f_env))) {
-          .(call_sym)(.(arg_sym), ...)
-        } else {
-          .(arg_sym) <- .(with_env)(.(arg_sym), parent.env(parent.frame()))
-          .(call_sym)(.(arg_sym), ...)
-        }
-      }),
+    # The parent of the decorated function's frame is its current closure.
+    invoke <- fill(
+      call_template,
+      list(.f_env = f_env, .call = call_sym, .arg = arg_sym, .with_env = with_env),
       call_env
     )
   } else {
@@ -231,8 +263,9 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     stand_name <- avoid("stand_in", call_name)
     assign(stand_name, stand_in, envir = call_env)
     # Marked so `decorator_context()` works during setup.
-    setup <- eval(
-      bquote(function() .(call_sym)(.(as.name(stand_name)))),
+    setup <- fill(
+      setup_template,
+      list(.call = call_sym, .stand_in = as.name(stand_name)),
       call_env
     )
     attr(setup, "adorn_ctx") <- ctx
@@ -246,25 +279,11 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     }
     # From here the name refers to the returned function.
     assign(call_name, run, envir = call_env)
-    invoke <- eval(
-      bquote(function(...) {
-        env <- parent.env(parent.frame())
-        # Usual case: the stand-in is already bound to this environment.
-        bound <- .(holder)$env
-        if (identical(env, bound)) {
-          return(.(call_sym)(...))
-        }
-        # Otherwise (e.g. R6 objects) rebind the stand-in for this call.
-        .previous <- .holder$fn
-        .previous_env <- .holder$env
-        .holder$fn <- .(with_env)(.(arg_sym), env)
-        .holder$env <- env
-        on.exit({
-          .holder$fn <- .previous
-          .holder$env <- .previous_env
-        })
-        .(call_sym)(...)
-      }),
+    # Usual case: the stand-in is already bound to this environment. Otherwise
+    # (e.g. R6 objects) it is rebound for the duration of the call.
+    invoke <- fill(
+      factory_template,
+      list(.holder_obj = holder, .call = call_sym, .arg = arg_sym, .with_env = with_env),
       call_env
     )
   }
