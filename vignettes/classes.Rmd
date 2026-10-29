@@ -96,9 +96,9 @@ area(new("Circle", r = 2))
 ```{r s7}
 library(S7)
 
-Dog := new_class("Dog", properties = list(name = class_character))
+Dog := new_class(properties = list(name = class_character))
 
-speak := new_generic("speak", "x")
+speak := new_generic(dispatch_args = "x")
 method(speak, Dog) <- logged %@% function(x) paste(x@name, "says woof")
 
 speak(Dog(name = "Rex"))

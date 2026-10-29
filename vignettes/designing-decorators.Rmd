@@ -221,7 +221,7 @@ setup_name_again := decorator(function(f) {
   }
 })
 
-add_three := `%@%`(setup_name_again, function(x) x + 3, name = "add_three")
+add_three <- `%@%`(setup_name_again, function(x) x + 3, name = "add_three")
 invisible(add_three(1))
 invisible(lapply(1, add_three))
 ```
