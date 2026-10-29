@@ -191,3 +191,23 @@ flaky <- retry(times = 3) %@%
 flaky()
 attempts
 ```
+
+## partial
+
+Decorated functions keep the formals of the original by default. A factory can
+opt out with `formals = "replace"` and take its formals from the function it
+returns, which makes decorators that change the signature possible, such as
+fixing arguments in advance:
+
+```{r partial}
+fix_x := decorator(
+  function(f, value = 1) function(y) f(value, y),
+  formals = "replace"
+)
+
+two_to := fix_x(value = 2) %@% function(x, y) x^y
+names(formals(two_to))
+two_to(3)
+```
+
+`vignette("partial-decorators")` builds a general `partial` and a `curry`.

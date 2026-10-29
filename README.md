@@ -163,6 +163,8 @@ for example ``Error in logged(f, ...)``.
 `once` and `retry`.
 `vignette("designing-decorators")` covers choosing between the two styles, what
 a decorated call costs, and the mistakes that are easy to make.
+`vignette("partial-decorators")` shows how a factory can change the decorated
+function's signature with `signature = "returned"`, for partial application.
 
 ## Decorating existing code: `decorate()`
 

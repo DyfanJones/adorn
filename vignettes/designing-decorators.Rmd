@@ -302,6 +302,23 @@ One call to `fib(5)` ran the decorator 15 times. If you only want the outermost
 call, decorate a small wrapper that calls an undecorated recursive function
 instead.
 
+### Changing the signature with `formals = "replace"`
+
+By default a decorated function keeps the formals of the original, and adorn
+makes sure `missing()` and defaults work. A factory that sets
+`formals = "replace"` gives that up: the decorated function has the formals
+of the function it returns, and getting `missing()`, defaults and argument
+matching right is the decorator's job. Remember too that:
+
+- `f` inside the factory still has the original signature, so use `formals(f)`
+  to build the returned function, and forward its arguments by name.
+- Quote symbols and calls you embed as values, or they are evaluated when the
+  decorated function is called.
+- S3, S4 and S7 methods must match the signature of their generic, so only
+  change a method's trailing arguments.
+
+See `vignette("partial-decorators")`.
+
 ### Order of stacked decorators
 
 In `a %@% b %@% f`, `a` is the outermost decorator. Its code before `f(...)`

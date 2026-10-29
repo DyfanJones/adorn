@@ -4,7 +4,7 @@
 \alias{decorator}
 \title{Create a decorator}
 \usage{
-decorator(wrapper, name = NULL)
+decorator(wrapper, name = NULL, formals = c("keep", "replace"))
 }
 \arguments{
 \item{wrapper}{A function, as described above.}
@@ -14,6 +14,14 @@ decorator(wrapper, name = NULL)
 when applied with \verb{\%@\%} (\code{timed \%@\% f} gives \code{"timed"}, and
 \code{retry(times = 5) \%@\% f} gives \code{"retry"}). Set it to override that;
 \code{"decorator"} is the last resort.}
+
+\item{formals}{What happens to the formal arguments of the decorated
+function. \code{"keep"} (the default) keeps those of the original. \code{"replace"}
+swaps them for those of the function a factory returns; it is an error
+for call style, which has no returned function. With \code{"replace"}, matching,
+defaults and \code{missing()} follow the returned function, so getting them
+right is up to the decorator. S3, S4 and S7 methods must still match their
+generic.}
 }
 \value{
 A decorator: a function that decorates a function when called with
@@ -40,9 +48,11 @@ decorator parameters. Set them by calling the decorator:
 If your decorator stores the result of \code{f(...)} before returning it, use
 \code{withVisible()} to keep functions that return \code{invisible()} quiet.
 
-Whatever the style, the decorated function keeps the formal arguments of
-the original, so argument matching, \code{missing()}, defaults and
-introspection all behave as before.
+By default the decorated function keeps the formal arguments of the
+original, so argument matching, \code{missing()} and defaults behave as before.
+A factory can instead set \code{formals = "replace"} to give the decorated
+function the formals of the function it returns, which lets it change the
+signature (see \code{vignette("partial-decorators")}).
 }
 \examples{
 # Call style: runs on every call
@@ -68,4 +78,9 @@ greet("world")
 
 ones <- repeated(times = 3) \%@\% function() 1
 ones()
+
+# Replacing the formals: the decorated function takes only `y`
+two_to := decorator(function(f) function(y) f(2, y), formals = "replace")
+pow := two_to \%@\% function(x, y) x^y
+pow(3)
 }
