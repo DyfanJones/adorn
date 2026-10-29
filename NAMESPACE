@@ -2,12 +2,26 @@
 
 S3method(print,adorn_decorator)
 export("%@%")
+export(":=")
 export("decorate<-")
 export(decorate)
 export(decorator)
 export(decorator_context)
 export(decorators)
 export(undecorate)
+importFrom(S7,
+  ":=",
+  "method<-",
+  S7_dispatch,
+  S7_on_build,
+  S7_on_load,
+  S7_on_unload,
+  class_character,
+  class_function,
+  method,
+  new_S3_class,
+  new_generic
+)
 importFrom(methods,
   getClass,
   getMethod,

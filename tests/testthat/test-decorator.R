@@ -134,7 +134,7 @@ test_that("inferred names reach decorator_context() and print()", {
 
   expect_output(
     print(decorator(function(f, ...) f(...))),
-    "<decorator: decorator>"
+    "<decorator: anonymous>"
   )
   expect_output(
     print(decorator(function(f, ...) f(...), name = "mine")),
@@ -272,13 +272,48 @@ test_that("`name` names an anonymous function, including via S7's `:=`", {
 test_that("decorating adds only a few stack frames per level of recursion", {
   frames_per_level <- function(dec) {
     frames <- integer()
-    f <- dec %@% function(k) {
-      frames[length(frames) + 1L] <<- sys.nframe()
-      if (k == 0) 0 else 1 + f(k - 1)
-    }
+    f <- dec %@%
+      function(k) {
+        frames[length(frames) + 1L] <<- sys.nframe()
+        if (k == 0) 0 else 1 + f(k - 1)
+      }
     f(3)
     diff(frames)[1L]
   }
   expect_lte(frames_per_level(decorator(function(f, ...) f(...))), 4L)
   expect_lte(frames_per_level(decorator(function(f) function(...) f(...))), 5L)
+})
+
+test_that("print() lists a decorator's parameters and configuration", {
+  repeated <- decorator(function(f, ..., times = 2) rep(f(...), times))
+  expect_output(print(repeated), "parameters: times")
+  expect_output(print(repeated(times = 3)), "configured: times = 3")
+})
+
+test_that("configured language values are quoted into the wrapper", {
+  tagged <- decorator(function(f, ..., tag = quote(x)) {
+    list(f(...), tag)
+  })
+  f <- tagged(tag = quote(y + 1)) %@% function() "a"
+  expect_equal(f(), list("a", quote(y + 1)))
+})
+
+test_that("composed decorators cannot be configured", {
+  a <- decorator(function(f, ...) f(...))
+  b <- decorator(function(f, ...) f(...))
+  both <- a %@% b
+  expect_error(both(times = 2), "Composed decorators cannot be configured")
+  expect_error(both(1, 2), "Composed decorators cannot be configured")
+})
+
+test_that("the right-hand side of %@% must be a function", {
+  a <- decorator(function(f, ...) f(...))
+  expect_error(a %@% 1, "must be a function")
+  expect_error(`%@%`(1, function() 1), "must be a decorator")
+})
+
+test_that("non-decorator functions work as plain decorators", {
+  plain <- function(f) function(...) f(...) + 1
+  f <- plain %@% function() 1
+  expect_equal(f(), 2)
 })

@@ -15,7 +15,7 @@
 \item{name}{The name to give the decorated function, for
 \code{decorator_context()$name}. Normally the name is read from \code{rhs} when it is
 a symbol, so you only need this for an anonymous function. It is also what
-the development version of S7's \verb{:=} supplies:
+S7's \verb{:=}, re-exported by adorn, supplies:
 \code{add_one := dec \%@\% function(x) x + 1} names the function \code{add_one}. It has
 no effect when \code{rhs} is a decorator.}
 }
@@ -31,4 +31,8 @@ decorator on the left-hand side.
 \examples{
 loud <- decorator(function(f, ...) toupper(f(...))) \%@\% function() "hi"
 loud()
+
+# `:=` is re-exported from S7 and supplies `name`
+add_one := decorator(function(f, ...) f(...)) \%@\% function(x) x + 1
+add_one(1)
 }

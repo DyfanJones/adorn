@@ -226,12 +226,10 @@ invisible(add_three(1))
 invisible(lapply(1, add_three))
 ```
 
-The development version of S7 has a `:=` operator that fills `name` in from the
-left-hand side, so you do not have to write it out.
+adorn re-exports S7's `:=` operator, which fills `name` in from the left-hand
+side, so you do not have to write it out.
 
-```{r anonymous-walrus, eval = FALSE}
-library(S7)
-
+```{r anonymous-walrus}
 add_two := setup_name_again %@% function(x) x + 2
 invisible(add_two(1))
 #> -> add_two

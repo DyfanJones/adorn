@@ -1,5 +1,6 @@
 #' @include context.R decorator.R
 #' @importFrom methods getClass getMethod setMethod
+#' @importFrom S7 new_generic new_S3_class S7_dispatch method method<- class_function class_character
 NULL
 
 #' Decorate a function or an existing method
@@ -62,10 +63,10 @@ NULL
 #'   decorate("hi", shout, class = Greeter)
 #'   Greeter$new()$hi("world")
 #' }
-decorate <- S7::new_generic(
+decorate <- new_generic(
   "decorate",
   "target",
-  function(target, decorator, ...) S7::S7_dispatch()
+  function(target, decorator, ...) S7_dispatch()
 )
 
 check_decorator <- function(decorator) {
@@ -81,12 +82,12 @@ apply_named <- function(decorator, fn, name) {
   with_binding_name(name, decorator(fn))
 }
 
-S7::method(decorate, S7::class_function) <- function(target, decorator, ...) {
+method(decorate, class_function) <- function(target, decorator, ...) {
   check_decorator(decorator)
   decorator(target)
 }
 
-S7::method(decorate, S7::class_character) <- function(
+method(decorate, class_character) <- function(
   target,
   decorator,
   ...,
@@ -118,7 +119,7 @@ s3_generic_name <- function(fn) {
         return(x[[2L]])
       }
       for (i in seq_along(x)) {
-        if (!missing(x[[i]]) && !is.null(res <- find(x[[i]]))) {
+        if (!identical(x[[i]], quote(expr = )) && !is.null(res <- find(x[[i]]))) {
           return(res)
         }
       }
@@ -149,10 +150,10 @@ decorate_s4_method <- function(target, decorator, signature, where) {
     stop("Supply the S4 `signature` of the method to decorate.", call. = FALSE)
   }
   generic <- as.character(target@generic)
-  method <- methods::getMethod(generic, signature)
-  fn <- method@.Data
+  s4_method <- methods::getMethod(generic, signature)
+  fn <- s4_method@.Data
   # S4 keeps the decoration metadata on the method object, not the function.
-  attr(fn, "adorn") <- attr(method, "adorn")
+  attr(fn, "adorn") <- attr(s4_method, "adorn")
   decorated <- apply_named(decorator, fn, generic)
   methods::setMethod(generic, signature, decorated, where = where)
   invisible(decorated)
@@ -162,9 +163,9 @@ decorate_s7_method <- function(target, decorator, class) {
   if (missing(class)) {
     stop("Supply the S7 `class` of the method to decorate.", call. = FALSE)
   }
-  method <- S7::method(target, class)
-  decorated <- apply_named(decorator, method, target@name)
-  suppressMessages(S7::`method<-`(target, class, value = decorated))
+  current <- method(target, class)
+  decorated <- apply_named(decorator, current, target@name)
+  suppressMessages(method(target, class) <- decorated)
   invisible(decorated)
 }
 
@@ -180,7 +181,12 @@ find_r6_method <- function(gen, name, field, where) {
     gen <- gen$get_inherit()
   }
   stop(
-    sprintf("No %s method `%s` found on `%s` or its parents.", where, name, gen_name),
+    sprintf(
+      "No %s method `%s` found on `%s` or its parents.",
+      where,
+      name,
+      gen_name
+    ),
     call. = FALSE
   )
 }
@@ -205,7 +211,7 @@ decorate_r6_methods <- function(target, decorator, method, where = "public") {
   invisible(target)
 }
 
-S7::method(decorate, S7::new_S3_class("R6ClassGenerator")) <- function(
+method(decorate, new_S3_class("R6ClassGenerator")) <- function(
   target,
   decorator,
   ...
@@ -216,7 +222,7 @@ S7::method(decorate, S7::new_S3_class("R6ClassGenerator")) <- function(
   )
 }
 
-S7::method(decorate, methods::getClass("standardGeneric")) <- function(
+method(decorate, methods::getClass("standardGeneric")) <- function(
   target,
   decorator,
   ...,
@@ -226,7 +232,7 @@ S7::method(decorate, methods::getClass("standardGeneric")) <- function(
   decorate_s4_method(target, decorator, signature, where)
 }
 
-S7::method(decorate, S7::new_S3_class("S7_generic")) <- function(
+method(decorate, new_S3_class("S7_generic")) <- function(
   target,
   decorator,
   ...,
@@ -255,15 +261,16 @@ S7::method(decorate, S7::new_S3_class("S7_generic")) <- function(
 #'   class name, or R6 method name(s), as above.
 #' @param value For the replacement form, the decorator to apply.
 #' @export
-`decorate<-` <- S7::new_generic(
+`decorate<-` <- new_generic(
   "decorate<-",
   "target",
-  function(target, signature, value) S7::S7_dispatch()
+  function(target, signature, ..., value) S7_dispatch()
 )
 
-S7::method(`decorate<-`, S7::class_function) <- function(
+method(`decorate<-`, class_function) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   generic <- s3_generic_name(target)
@@ -279,27 +286,30 @@ S7::method(`decorate<-`, S7::class_function) <- function(
   target
 }
 
-S7::method(`decorate<-`, methods::getClass("standardGeneric")) <- function(
+method(`decorate<-`, methods::getClass("standardGeneric")) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   decorate_s4_method(target, value, signature, topenv(parent.frame(2)))
   target
 }
 
-S7::method(`decorate<-`, S7::new_S3_class("S7_generic")) <- function(
+method(`decorate<-`, new_S3_class("S7_generic")) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   decorate_s7_method(target, value, signature)
   target
 }
 
-S7::method(`decorate<-`, S7::new_S3_class("R6ClassGenerator")) <- function(
+method(`decorate<-`, new_S3_class("R6ClassGenerator")) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   decorate_r6_methods(target, value, signature)

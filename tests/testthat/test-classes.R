@@ -228,7 +228,7 @@ test_that("replacement form stacks like decorate()", {
   run <- S7::new_generic("run", "x")
   S7::method(run, Fox) <- function(x) x@n
   decorate(run, Fox) <- plus1 %@% plus1
-  decorate(run, Fox) <- who   # added last, so outermost
+  decorate(run, Fox) <- who # added last, so outermost
   res <- run(Fox(n = 1))
   expect_equal(res[["value"]], "3")
   expect_match(res[["name"]], "^method\\(run, ")
@@ -285,7 +285,10 @@ test_that("decorate() on an R6 class validates its input", {
   Counter <- R6::R6Class("DCheck", public = list(a = function() 1))
   expect_error(decorate(Counter, plus1), "class = Generator")
   expect_error(decorate("a", plus1), "Supply the `class`")
-  expect_error(decorate("nope", plus1, class = Counter), "No public method `nope`")
+  expect_error(
+    decorate("nope", plus1, class = Counter),
+    "No public method `nope`"
+  )
   expect_error(decorate(c("a", "nope"), plus1, class = Counter), "nope")
   expect_equal(Counter$new()$a(), 1)
 })
@@ -302,4 +305,33 @@ test_that("the replacement form decorates S3 methods from the generic", {
   area.rsq <- function(x, ...) x$side^2
   decorate(area, "rsq") <- plus1
   expect_equal(area(structure(list(side = 3), class = "rsq")), 10)
+})
+
+test_that("decorate() on S3 generics validates its inputs", {
+  expect_error(decorate("print", plus1, class = c("a", "b")), "single string")
+})
+
+test_that("the replacement form finds UseMethod() in nested calls", {
+  gen_nested <- function(x) {
+    if (is.null(x)) {
+      return(NULL)
+    }
+    UseMethod("gen_nested")
+  }
+  gen_nested.numeric <- function(x) x
+  decorate(gen_nested, "numeric") <- plus1
+  expect_equal(gen_nested(1), 2)
+
+  braced <- function(x) {
+    UseMethod("braced")
+  }
+  braced.numeric <- function(x) x
+  decorate(braced, "numeric") <- plus1
+  expect_equal(braced(1), 2)
+})
+
+test_that("decorate() on R6 generators needs method names", {
+  skip_if_not_installed("R6")
+  Gen <- R6::R6Class("CovGen", public = list(a = function() 1))
+  expect_error(decorate(Gen, character()) <- plus1, "Supply the R6 method name")
 })
