@@ -1,6 +1,6 @@
 #' @include context.R decorator.R
 #' @importFrom methods getClass getMethod setMethod
-#' @importFrom S7 new_generic S7_dispatch method class_function new_S3_class
+#' @importFrom S7 new_generic new_S3_class S7_dispatch method method<- class_function class_character
 NULL
 
 #' Decorate a function or an existing method

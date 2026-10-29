@@ -11,10 +11,12 @@ export(decorators)
 export(undecorate)
 importFrom(S7,
   ":=",
+  "method<-",
   S7_dispatch,
   S7_on_build,
   S7_on_load,
   S7_on_unload,
+  class_character,
   class_function,
   method,
   new_S3_class,
