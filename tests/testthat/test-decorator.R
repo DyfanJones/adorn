@@ -134,7 +134,7 @@ test_that("inferred names reach decorator_context() and print()", {
 
   expect_output(
     print(decorator(function(f, ...) f(...))),
-    "<decorator: decorator>"
+    "<decorator: anonymous>"
   )
   expect_output(
     print(decorator(function(f, ...) f(...), name = "mine")),
@@ -272,10 +272,11 @@ test_that("`name` names an anonymous function, including via S7's `:=`", {
 test_that("decorating adds only a few stack frames per level of recursion", {
   frames_per_level <- function(dec) {
     frames <- integer()
-    f <- dec %@% function(k) {
-      frames[length(frames) + 1L] <<- sys.nframe()
-      if (k == 0) 0 else 1 + f(k - 1)
-    }
+    f <- dec %@%
+      function(k) {
+        frames[length(frames) + 1L] <<- sys.nframe()
+        if (k == 0) 0 else 1 + f(k - 1)
+      }
     f(3)
     diff(frames)[1L]
   }

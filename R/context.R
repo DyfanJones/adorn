@@ -5,7 +5,12 @@ name_from_call <- function(call, fallback) {
   head <- if (is.call(call)) call[[1L]]
   if (is.call(head) && length(head) == 3L) {
     op <- head[[1L]]
-    if (identical(op, quote(`$`)) || identical(op, quote(`::`)) || identical(op, quote(`:::`)) || identical(op, quote(`@`))) {
+    if (
+      identical(op, quote(`$`)) ||
+        identical(op, quote(`::`)) ||
+        identical(op, quote(`:::`)) ||
+        identical(op, quote(`@`))
+    ) {
       head <- head[[3L]]
     }
   }

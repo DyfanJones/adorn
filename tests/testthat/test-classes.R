@@ -228,7 +228,7 @@ test_that("replacement form stacks like decorate()", {
   run <- S7::new_generic("run", "x")
   S7::method(run, Fox) <- function(x) x@n
   decorate(run, Fox) <- plus1 %@% plus1
-  decorate(run, Fox) <- who   # added last, so outermost
+  decorate(run, Fox) <- who # added last, so outermost
   res <- run(Fox(n = 1))
   expect_equal(res[["value"]], "3")
   expect_match(res[["name"]], "^method\\(run, ")
@@ -285,7 +285,10 @@ test_that("decorate() on an R6 class validates its input", {
   Counter <- R6::R6Class("DCheck", public = list(a = function() 1))
   expect_error(decorate(Counter, plus1), "class = Generator")
   expect_error(decorate("a", plus1), "Supply the `class`")
-  expect_error(decorate("nope", plus1, class = Counter), "No public method `nope`")
+  expect_error(
+    decorate("nope", plus1, class = Counter),
+    "No public method `nope`"
+  )
   expect_error(decorate(c("a", "nope"), plus1, class = Counter), "nope")
   expect_equal(Counter$new()$a(), 1)
 })

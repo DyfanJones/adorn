@@ -180,7 +180,12 @@ find_r6_method <- function(gen, name, field, where) {
     gen <- gen$get_inherit()
   }
   stop(
-    sprintf("No %s method `%s` found on `%s` or its parents.", where, name, gen_name),
+    sprintf(
+      "No %s method `%s` found on `%s` or its parents.",
+      where,
+      name,
+      gen_name
+    ),
     call. = FALSE
   )
 }

@@ -117,21 +117,21 @@ new_decorator <- function(wrapper, style, params, config, name) {
 #' @export
 print.adorn_decorator <- function(x, ...) {
   env <- environment(x)
-  cat(sprintf("<decorator: %s> [%s style]\n", env$name %||% "decorator", env$style))
+  cat(sprintf(
+    "<decorator: %s> [%s style]\n",
+    env$name %||% "anonymous",
+    env$style
+  ))
   if (length(env$params)) {
-    cat("  parameters:", paste(env$params, collapse = ", "), "\n")
+    cat(sprintf("  parameters: %s\n", paste(env$params, collapse = ", ")))
   }
   if (length(env$config)) {
-    cat(
-      "  configured:",
-      paste(
-        names(env$config),
-        vapply(env$config, format, ""),
-        sep = " = ",
-        collapse = ", "
-      ),
-      "\n"
+    config <- paste(
+      names(env$config),
+      vapply(env$config, format, ""),
+      sep = " = "
     )
+    cat(sprintf("  configured: %s\n", paste(config, collapse = ", ")))
   }
   invisible(x)
 }
@@ -140,9 +140,20 @@ print.adorn_decorator <- function(x, ...) {
 # calls by name (faster under the byte compiler than embedded literals). A
 # decorator with one of these names is bound under a mangled name instead.
 reserved_names <- c(
-  ".holder", ".previous", ".previous_env",
-  "parent.env", "parent.frame", "identical",
-  "{", "if", "<-", "!", "$", "$<-", "on.exit", "return"
+  ".holder",
+  ".previous",
+  ".previous_env",
+  "parent.env",
+  "parent.frame",
+  "identical",
+  "{",
+  "if",
+  "<-",
+  "!",
+  "$",
+  "$<-",
+  "on.exit",
+  "return"
 )
 
 with_env <- function(fn, env) {
@@ -151,7 +162,9 @@ with_env <- function(fn, env) {
 }
 
 # `name`, unless it is `taken`, in which case a dotted variant.
-avoid <- function(name, taken) if (identical(name, taken)) paste0(".", name) else name
+avoid <- function(name, taken) {
+  if (identical(name, taken)) paste0(".", name) else name
+}
 
 decorate_function <- function(f, wrapper, style, config, dec_name) {
   dec_name <- dec_name %||% "decorator"
@@ -184,7 +197,11 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   # `logged(f, ...)` rather than an internal call. Everything `invoke` needs
   # lives in `call_env`, so a decorator named `f` cannot shadow it.
   call_env <- new.env(parent = baseenv())
-  call_name <- if (dec_name %in% reserved_names) paste0(".", dec_name) else dec_name
+  call_name <- if (dec_name %in% reserved_names) {
+    paste0(".", dec_name)
+  } else {
+    dec_name
+  }
   assign(call_name, w, envir = call_env)
   call_sym <- as.name(call_name)
   # The decorated function is passed as `f`, unless the decorator is `f`.
@@ -214,7 +231,10 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     stand_name <- avoid("stand_in", call_name)
     assign(stand_name, stand_in, envir = call_env)
     # Marked so `decorator_context()` works during setup.
-    setup <- eval(bquote(function() .(call_sym)(.(as.name(stand_name)))), call_env)
+    setup <- eval(
+      bquote(function() .(call_sym)(.(as.name(stand_name)))),
+      call_env
+    )
     attr(setup, "adorn_ctx") <- ctx
     attr(setup, "adorn_setup") <- TRUE
     run <- setup()
@@ -320,7 +340,10 @@ forward_formals <- function(f, invoke) {
   if (!is.function(rhs)) {
     stop("Right-hand side of `%@%` must be a function.", call. = FALSE)
   }
-  if (!is.null(name) && !(is.character(name) && length(name) == 1L && !is.na(name))) {
+  if (
+    !is.null(name) &&
+      !(is.character(name) && length(name) == 1L && !is.na(name))
+  ) {
     stop("`name` must be a single string.", call. = FALSE)
   }
   # Precedence: explicit `name`, then `decorate()`, then the symbol `rhs`.
