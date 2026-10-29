@@ -119,7 +119,9 @@ s3_generic_name <- function(fn) {
         return(x[[2L]])
       }
       for (i in seq_along(x)) {
-        if (!identical(x[[i]], quote(expr = )) && !is.null(res <- find(x[[i]]))) {
+        if (
+          !identical(x[[i]], quote(expr = )) && !is.null(res <- find(x[[i]]))
+        ) {
           return(res)
         }
       }
