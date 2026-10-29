@@ -3,6 +3,11 @@
 # lapply) gives `fallback`.
 name_from_call <- function(call, fallback) {
   head <- if (is.call(call)) call[[1L]]
+  # The common case, `fib(1)`, needs no further inspection.
+  if (is.symbol(head)) {
+    name <- as.character(head)
+    return(if (name == "FUN") fallback else name)
+  }
   if (is.call(head) && length(head) == 3L) {
     op <- head[[1L]]
     if (
@@ -101,14 +106,40 @@ context_name <- function(entry) {
 #' hello <- who %@% function() "hi"
 #' hello()
 decorator_context <- function() {
-  entry <- find_context(sys.nframe())
-  if (is.null(entry)) {
-    stop(
-      "`decorator_context()` can only be used inside a decorator.",
-      call. = FALSE
-    )
+  n <- sys.nframe()
+  # Called straight from a decorator body, the frame two below is `invoke` (or
+  # `setup`, while a factory-style decorator is being set up).
+  fn <- if (n >= 3L) sys.function(n - 2L)
+  ctx <- attr(fn, "adorn_ctx", exact = TRUE)
+
+  if (is.null(ctx)) {
+    # Called from a helper or the decorated function: search the stack.
+    entry <- find_context(n)
+    if (is.null(entry)) {
+      stop(
+        "`decorator_context()` can only be used inside a decorator.",
+        call. = FALSE
+      )
+    }
+    ctx <- entry$ctx
+    ctx$name <- context_name(entry)
+    return(ctx)
   }
-  ctx <- entry$ctx
-  ctx$name <- context_name(entry)
+  if (isTRUE(attr(fn, "adorn_setup", exact = TRUE))) {
+    return(ctx)
+  }
+
+  holder <- attr(fn, "adorn_holder", exact = TRUE)
+  if (isTRUE(holder$wrapped)) {
+    entry <- list(
+      ctx = ctx,
+      frame = n - 3L,
+      holder = holder,
+      inner = attr(fn, "adorn_inner", exact = TRUE)
+    )
+    ctx$name <- context_name(entry)
+  } else {
+    ctx$name <- name_from_call(sys.call(n - 3L), ctx$name)
+  }
   ctx
 }
