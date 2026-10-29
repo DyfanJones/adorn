@@ -40,7 +40,8 @@ website:
         file: $ALTDOC_CODE_OF_CONDUCT
       - text: Citation
         file: $ALTDOC_CITATION
-
+  llms-txt: true
+  
 format:
   html:
     code-link: true

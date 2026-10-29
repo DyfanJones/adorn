@@ -23,10 +23,11 @@ greet("world")
 ```
 
 The point of adorn is that **writing your own decorator is easy**. adorn
-ships no decorators of its own; it is the framework for making them.
-`vignette("writing-decorators")` defines `timed`, `logged`, `memoize`, `once` and
-`retry` with the public API. The examples below that use them assume you have
-copied those definitions.
+ships no decorators of its own; it is the framework for making them. The
+examples below use two small decorators, `logged` and `timed`, defined in
+[Using decorators](#using-decorators).
+`vignette("writing-decorators")` builds more, such as `memoize`, `once` and
+`retry`, with the public API.
 
 > adorn is in early development, so the API may still change.
 
@@ -38,6 +39,30 @@ pak::pak("dyfanjones/adorn")
 ```
 
 ## Using decorators
+
+First, two basic decorators (see [Writing your own
+decorator](#writing-your-own-decorator) for how they work):
+
+```r
+logged <- decorator(function(f, ...) {
+  name <- decorator_context()$name
+  message("-> ", name)
+  on.exit(message("<- ", name))
+  f(...)
+})
+
+timed <- decorator(function(f, ..., digits = 1) {
+  name <- decorator_context()$name
+  start <- Sys.time()
+  on.exit({
+    secs <- round(as.numeric(Sys.time() - start, units = "secs"), digits)
+    message(name, " took ", secs, " s")
+  })
+  f(...)
+})
+```
+
+Apply one with `%@%`:
 
 ```r
 slow_add <- timed %@% function(x, y = 1) {
@@ -67,8 +92,8 @@ undecorate(tracked)(5)     # 10, the original function
 Decorators can be combined into a reusable bundle before they are applied:
 
 ```r
-cached_timed <- timed %@% memoize
-f <- cached_timed %@% function(x) { Sys.sleep(0.1); x }
+logged_timed <- logged %@% timed
+f <- logged_timed %@% function(x) x + 1
 ```
 
 ### Names
@@ -122,6 +147,7 @@ counted <- decorator(function(f) {
 ping <- counted %@% function() "pong"
 ping()
 #> ping call #1
+#> [1] "pong"
 ```
 
 | You want | Write |
@@ -156,9 +182,9 @@ For a function, `decorate(fn, d)` is the same as `d %@% fn`. Pass a stack to
 apply several at once; the first is outermost.
 
 ```r
-safe_sq <- decorate(function(x) x^2, retry(times = 2) %@% timed(digits = 1))
-decorators(safe_sq)
-#> [1] "retry" "timed"
+sq <- decorate(function(x) x^2, logged %@% timed(digits = 1))
+decorators(sq)
+#> [1] "logged" "timed"
 ```
 
 Every method can be decorated in the explicit form,
