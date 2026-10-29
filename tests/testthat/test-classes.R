@@ -306,3 +306,32 @@ test_that("the replacement form decorates S3 methods from the generic", {
   decorate(area, "rsq") <- plus1
   expect_equal(area(structure(list(side = 3), class = "rsq")), 10)
 })
+
+test_that("decorate() on S3 generics validates its inputs", {
+  expect_error(decorate("print", plus1, class = c("a", "b")), "single string")
+})
+
+test_that("the replacement form finds UseMethod() in nested calls", {
+  gen_nested <- function(x) {
+    if (is.null(x)) {
+      return(NULL)
+    }
+    UseMethod("gen_nested")
+  }
+  gen_nested.numeric <- function(x) x
+  decorate(gen_nested, "numeric") <- plus1
+  expect_equal(gen_nested(1), 2)
+
+  braced <- function(x) {
+    UseMethod("braced")
+  }
+  braced.numeric <- function(x) x
+  decorate(braced, "numeric") <- plus1
+  expect_equal(braced(1), 2)
+})
+
+test_that("decorate() on R6 generators needs method names", {
+  skip_if_not_installed("R6")
+  Gen <- R6::R6Class("CovGen", public = list(a = function() 1))
+  expect_error(decorate(Gen, character()) <- plus1, "Supply the R6 method name")
+})
