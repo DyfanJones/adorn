@@ -1,0 +1,252 @@
+---
+title: "Changing a function's signature"
+output: litedown::html_format
+vignette: >
+  %\VignetteIndexEntry{Changing a function's signature}
+  %\VignetteEngine{litedown::vignette}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup}
+library(adorn)
+```
+
+By default a decorated function keeps the formal arguments of the original, so
+`formals()`, argument matching, defaults and `missing()` all behave as before.
+That is what you want for `timed` or `retry`, but it rules out decorators whose
+whole point is to change the signature: fixing some arguments in advance
+(partial application), currying, or adding an argument.
+
+A factory-style decorator can opt in with `formals = "replace"`. The decorated
+function then takes its formals from the function the factory returns, instead
+of from `f`:
+
+```{r minimal}
+two_to := decorator(
+  function(f) function(y) f(2, y),
+  formals = "replace"
+)
+
+pow := two_to %@% function(x, y) x^y
+formals(pow)
+pow(3)
+```
+
+The examples use `:=`, which adorn re-exports from S7. It assigns the result and
+passes the variable's name as `name`: `logged := decorator(...)` names the
+decorator, and `pow := logged %@% f` names the function, which is what
+`decorator_context()$name` reports even for an anonymous `f`.
+
+adorn ships no partial-application decorator. This vignette builds one, and a
+few others, with only the public API.
+
+## What you take on
+
+With the default, `formals = "keep"`, adorn guarantees that argument matching
+and `missing()` work exactly as they do for the original. With `"replace"`,
+that guarantee passes to you: the decorated function behaves like
+the function you return. Three things stay the same:
+
+- `f` inside the factory still has the *original* signature, so you can read
+  `formals(f)` to decide what to build.
+- `undecorate()` returns the original function with its full formals.
+- `decorators()` and `decorator_context()` work as usual.
+
+It only applies to factory style. A call-style wrapper is fixed to
+`function(f, ..., params)` and has no returned function, so `decorator()`
+refuses the combination.
+
+## partial
+
+`partial` fixes some arguments by name and leaves the rest. It reads the
+formals of `f`, drops the fixed ones, and builds a function with what is left
+that calls `f` with the fixed values plus the remaining arguments forwarded.
+
+```{r partial}
+partial := decorator(
+  function(f, .fixed = list()) {
+    fmls <- formals(f)
+    unknown <- setdiff(names(.fixed), names(fmls))
+    if (length(unknown) > 0L && !"..." %in% names(fmls)) {
+      stop("Not arguments of `f`: ", paste(unknown, collapse = ", "), call. = FALSE)
+    }
+    keep <- fmls[setdiff(names(fmls), names(.fixed))]
+    # Forward each remaining argument by name; `...` is forwarded unnamed.
+    fwd <- lapply(names(keep), as.name)
+    names(fwd) <- ifelse(names(keep) == "...", "", names(keep))
+    # Quote symbols and calls so they are passed as values, not evaluated.
+    fixed <- lapply(.fixed, function(v) {
+      if (is.language(v)) call("quote", v) else v
+    })
+    as.function(c(keep, list(as.call(c(list(f), fixed, fwd)))))
+  },
+  formals = "replace"
+)
+
+pow <- function(x, y) x^y
+two_to := partial(.fixed = list(x = 2)) %@% pow
+square := partial(.fixed = list(y = 2)) %@% pow
+
+names(formals(two_to))
+two_to(3)
+square(4)
+```
+
+Fixed arguments can be leading or trailing, and the remaining arguments keep
+their defaults and `missing()` behaviour:
+
+```{r defaults}
+describe <- function(x, sep = "-", suffix) {
+  paste0(x, sep, if (missing(suffix)) "none" else suffix)
+}
+tagged := partial(.fixed = list(x = "id")) %@% describe
+tagged()
+tagged(suffix = "7")
+```
+
+If `f` has `...`, a fixed name that is not a formal is passed on through the
+dots, which is handy for forwarding options to the function the dots go to.
+Without `...` it is an error, because it is almost certainly a typo:
+
+```{r unknown, error = TRUE}
+joined := partial(.fixed = list(sep = "-")) %@% function(...) paste(...)
+joined("a", "b")
+
+partial(.fixed = list(z = 1)) %@% pow
+```
+
+### Stacking
+
+Every layer sees the signature of the layer below it, so `partial` stacks with
+any other decorator in either order:
+
+```{r stack}
+logged := decorator(function(f, ...) {
+  cat("calling with", length(list(...)), "argument(s)\n")
+  f(...)
+})
+
+a := logged %@% partial(.fixed = list(x = 2)) %@% pow
+b := partial(.fixed = list(x = 2)) %@% logged %@% pow
+
+a(3)
+b(3)
+decorators(a)
+decorators(b)
+```
+
+In `a`, `logged` sees the reduced signature and one argument. In `b`, `logged`
+is applied to the full `pow`, and `partial` is applied on top.
+
+`undecorate()` still gives back the original, with all its arguments:
+
+```{r undecorate}
+names(formals(undecorate(a)))
+```
+
+## curry
+
+A decorator can return any signature it likes. `curry` turns a function of
+several arguments into a chain of one-argument functions, each returning the
+next, until it has them all. Each step is given the real name of the argument
+it collects, so the formals stay meaningful at every stage:
+
+```{r curry}
+curry := decorator(
+  function(f) {
+    # `f` still has the original formals here, so they say what to collect.
+    args <- setdiff(names(formals(f)), "...")
+    step <- function(done) {
+      arg <- args[[length(done) + 1L]]
+      last <- length(done) + 1L == length(args)
+      next_fn <- if (last) function(all) do.call(f, all) else step
+      # The body calls `next_fn` with everything collected so far plus this
+      # argument. Both are embedded as values, not looked up by name, so an
+      # argument called `done` or `f` cannot shadow anything.
+      value <- as.call(c(list(as.name("list")), setNames(list(as.name(arg)), arg)))
+      body <- as.call(list(next_fn, call("c", done, value)))
+      as.function(c(setNames(alist(x = ), arg), list(body)), envir = baseenv())
+    }
+    step(list())
+  },
+  formals = "replace"
+)
+
+box <- function(width, height, depth) width * height * depth
+
+volume := curry %@% box
+volume(2)(3)(4)
+```
+
+The decorated function takes only the first argument, and each step takes the
+next one:
+
+```{r curry-formals}
+names(formals(volume))
+names(formals(volume(2)))
+```
+
+A partly applied curry is an ordinary function, so it can be reused:
+
+```{r curry-reuse}
+two_wide <- volume(2)
+two_wide(3)(4)
+two_wide(5)(5)
+```
+
+`curry` stacks like any other decorator. Here `partial` fixes `depth` first, so
+only `width` and `height` are left to collect:
+
+```{r curry-stack}
+area_of_slab := curry %@% partial(.fixed = list(depth = 10)) %@% box
+names(formals(area_of_slab))
+area_of_slab(2)(3)
+```
+
+This `curry` always collects every argument, so defaults on the original are
+not used. Fix an argument with `partial` first if you want a default.
+
+## Adding an argument
+
+The returned function may have *more* arguments than `f`, too:
+
+```{r add}
+with_scale := decorator(
+  function(f) function(x, scale = 10) f(x) * scale,
+  formals = "replace"
+)
+
+double_it := with_scale %@% function(x) x
+double_it(2)
+double_it(2, scale = 1)
+```
+
+## Decorating methods
+
+`formals = "replace"` works with `decorate()` for plain functions and R6
+methods, where the method's signature is free:
+
+```{r r6}
+library(R6)
+Account <- R6Class("Account",
+  public = list(
+    balance = 100,
+    deposit = function(amount, fee) self$balance + amount - fee
+  )
+)
+decorate("deposit", partial(.fixed = list(fee = 1)), class = Account)
+
+Account$new()$deposit(50)
+```
+
+Take care with S3, S4 and S7 methods. They have to match the signature of
+their generic, so fixing a leading argument breaks dispatch, and S7 checks the
+method's formals against the generic's when you register it. Fixing only
+trailing arguments, which the generic does not use, is the safe case. See
+`vignette("classes")`.
+
+## What it costs
+
+`formals = "replace"` changes nothing about how a decorated call is made. The
+extra work is done once, when the function is decorated. A call to a partial
+adds one function call: the one your returned function makes to `f`.

@@ -62,7 +62,7 @@ A call-style body runs again on every call, so anything it creates is thrown
 away. This counter never gets past 1:
 
 ```{r state-bad}
-counter_bad <- decorator(function(f, ...) {
+counter_bad := decorator(function(f, ...) {
   n <- 0
   n <- n + 1
   cat("call", n, "\n")
@@ -78,7 +78,7 @@ Make it a factory. The body now runs once per decorated function, and the
 function it returns closes over `n`. Each decorated function gets its own copy:
 
 ```{r state-good}
-counter <- decorator(function(f) {
+counter := decorator(function(f) {
   n <- 0
   function(...) {
     n <<- n + 1
@@ -108,11 +108,11 @@ Asking for the context on every call, in four stacked decorators, costs several
 times as much as the decorators themselves:
 
 ```r
-per_call <- decorator(function(f, ...) {
+per_call := decorator(function(f, ...) {
   name <- decorator_context()$name
   f(...)
 })
-once <- decorator(function(f) {
+once := decorator(function(f) {
   name <- decorator_context()$name
   function(...) f(...)
 })
@@ -133,11 +133,11 @@ bound to at that point. In a call-style decorator it is the name the function
 was *called* by:
 
 ```{r context-names}
-at_setup <- decorator(function(f) {
+at_setup := decorator(function(f) {
   cat("setup sees:", decorator_context()$name, "\n")
   function(...) f(...)
 })
-at_call <- decorator(function(f, ...) {
+at_call := decorator(function(f, ...) {
   cat("call sees: ", decorator_context()$name, "\n")
   f(...)
 })
@@ -164,7 +164,7 @@ function, not the variable you assign the result to, so a factory that reads the
 name while it is being decorated gets `"<anonymous>"`:
 
 ```{r anonymous-setup}
-setup_name <- decorator(function(f) {
+setup_name := decorator(function(f) {
   name <- decorator_context()$name
   function(...) {
     cat("->", name, "\n")
@@ -180,7 +180,7 @@ The name exists once the function is called, so ask for it on the first call
 and keep it. This costs one stack lookup, once, and nothing after that:
 
 ```{r anonymous-lazy}
-traced <- decorator(function(f) {
+traced := decorator(function(f) {
   name <- NULL
   function(...) {
     if (is.null(name)) {
@@ -191,7 +191,7 @@ traced <- decorator(function(f) {
   }
 })
 
-plus_one <- traced %@% function(x) x + 1
+plus_one := traced %@% function(x) x + 1
 invisible(plus_one(1))
 ```
 
@@ -201,7 +201,7 @@ name, such as `FUN` inside `lapply()`, or `do.call()` with the function itself,
 gives `"<anonymous>"`. If that is the first call, it is the name you keep:
 
 ```{r anonymous-weakness}
-fn <- traced %@% function(x) x
+fn := traced %@% function(x) x
 invisible(lapply(1, fn))
 invisible(fn(1))
 ```
@@ -213,7 +213,7 @@ If you can name the function when you decorate it, the problem goes away. `%@%`
 takes a `name` argument, so the name is known at setup:
 
 ```{r anonymous-name}
-setup_name_again <- decorator(function(f) {
+setup_name_again := decorator(function(f) {
   name <- decorator_context()$name
   function(...) {
     cat("->", name, "\n")
@@ -256,8 +256,8 @@ prints:
 ```{r visible}
 quiet <- function() invisible("done")
 
-forwards <- decorator(function(f, ...) f(...))
-assigns <- decorator(function(f, ...) {
+forwards := decorator(function(f, ...) f(...))
+assigns := decorator(function(f, ...) {
   result <- f(...)
   result
 })
@@ -270,7 +270,7 @@ If the decorator has to do something after the call and still return the result,
 `withVisible()` keeps the visibility:
 
 ```{r withvisible}
-keeps <- decorator(function(f, ...) {
+keeps := decorator(function(f, ...) {
   result <- withVisible(f(...))
   # ... work after the call goes here ...
   if (result$visible) result$value else invisible(result$value)
@@ -288,7 +288,7 @@ such as timing:
 
 ```{r recursion}
 n_calls <- 0
-count <- decorator(function(f, ...) {
+count := decorator(function(f, ...) {
   n_calls <<- n_calls + 1
   f(...)
 })
@@ -302,19 +302,36 @@ One call to `fib(5)` ran the decorator 15 times. If you only want the outermost
 call, decorate a small wrapper that calls an undecorated recursive function
 instead.
 
+### Changing the signature with `formals = "replace"`
+
+By default a decorated function keeps the formals of the original, and adorn
+makes sure `missing()` and defaults work. A factory that sets
+`formals = "replace"` gives that up: the decorated function has the formals
+of the function it returns, and getting `missing()`, defaults and argument
+matching right is the decorator's job. Remember too that:
+
+- `f` inside the factory still has the original signature, so use `formals(f)`
+  to build the returned function, and forward its arguments by name.
+- Quote symbols and calls you embed as values, or they are evaluated when the
+  decorated function is called.
+- S3, S4 and S7 methods must match the signature of their generic, so only
+  change a method's trailing arguments.
+
+See `vignette("partial-decorators")`.
+
 ### Order of stacked decorators
 
 In `a %@% b %@% f`, `a` is the outermost decorator. Its code before `f(...)`
 runs first, and its code after runs last:
 
 ```{r order}
-a <- decorator(function(f, ...) {
+a := decorator(function(f, ...) {
   cat("a in\n")
   result <- f(...)
   cat("a out\n")
   result
 })
-b <- decorator(function(f, ...) {
+b := decorator(function(f, ...) {
   cat("b in\n")
   result <- f(...)
   cat("b out\n")
@@ -334,11 +351,11 @@ with the call `name(f, ...)`. An error from the decorated function keeps its own
 call:
 
 ```{r errors, error = TRUE}
-bad_dec <- decorator(function(f, ...) {
+bad_dec := decorator(function(f, ...) {
   stop("oops")
   f(...)
 })
-plain <- decorator(function(f, ...) f(...))
+plain := decorator(function(f, ...) f(...))
 
 (bad_dec %@% add_one)(1)
 (plain %@% function(x) stop("inner"))(1)

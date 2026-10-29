@@ -71,10 +71,11 @@ write it.
 ```{r s3}
 money <- function(x) structure(list(amount = x), class = "money")
 
-print.money <- logged %@% function(x, ...) {
-  cat("$", format(x$amount, nsmall = 2), "\n")
-  invisible(x)
-}
+print.money <- logged %@%
+  function(x, ...) {
+    cat("$", format(x$amount, nsmall = 2), "\n")
+    invisible(x)
+  }
 
 print(money(12.5))
 ```
@@ -95,9 +96,9 @@ area(new("Circle", r = 2))
 ```{r s7}
 library(S7)
 
-Dog <- new_class("Dog", properties = list(name = class_character))
+Dog := new_class(properties = list(name = class_character))
 
-speak <- new_generic("speak", "x")
+speak := new_generic(dispatch_args = "x")
 method(speak, Dog) <- logged %@% function(x) paste(x@name, "says woof")
 
 speak(Dog(name = "Rex"))
@@ -111,13 +112,15 @@ still chains.
 ```{r r6, eval = requireNamespace("R6", quietly = TRUE)}
 library(R6)
 
-Counter <- R6Class("Counter",
+Counter <- R6Class(
+  "Counter",
   public = list(
     n = 0,
-    add = logged %@% function(k = 1) {
-      self$n <- self$n + k
-      invisible(self)
-    }
+    add = logged %@%
+      function(k = 1) {
+        self$n <- self$n + k
+        invisible(self)
+      }
   )
 )
 
@@ -130,13 +133,17 @@ A stateful decorator works too. R6 methods belong to the class, so the cache
 below is shared by every `Model` object (the key is the argument, not `self`).
 
 ```{r r6-memoize, eval = requireNamespace("R6", quietly = TRUE)}
-Model <- R6Class("Model", public = list(
-  scale = 10,
-  predict = memoize %@% function(x) {
-    message("computing")
-    x * self$scale
-  }
-))
+Model <- R6Class(
+  "Model",
+  public = list(
+    scale = 10,
+    predict = memoize %@%
+      function(x) {
+        message("computing")
+        x * self$scale
+      }
+  )
+)
 
 m <- Model$new()
 m$predict(2)
@@ -234,17 +241,20 @@ created afterwards use the decorated method; objects that already exist keep
 the old one, because R6 copies methods into each object when it is created.
 
 ```{r r6-decorate, eval = requireNamespace("R6", quietly = TRUE)}
-Resetter <- R6Class("Resetter", public = list(
-  n = 0,
-  add = function(k = 1) {
-    self$n <- self$n + k
-    invisible(self)
-  },
-  reset = function() {
-    self$n <- 0
-    invisible(self)
-  }
-))
+Resetter <- R6Class(
+  "Resetter",
+  public = list(
+    n = 0,
+    add = function(k = 1) {
+      self$n <- self$n + k
+      invisible(self)
+    },
+    reset = function() {
+      self$n <- 0
+      invisible(self)
+    }
+  )
+)
 
 decorate("add", logged, class = Resetter)
 
@@ -257,7 +267,8 @@ Pass several names to decorate several methods at once. Use `where` for methods 
 (`"public"` is the default, the others are `"private"` and `"active"`).
 
 ```{r r6-where, eval = requireNamespace("R6", quietly = TRUE)}
-Safe <- R6Class("Safe",
+Safe <- R6Class(
+  "Safe",
   public = list(go = function() private$step()),
   private = list(step = function() "ok")
 )
@@ -275,8 +286,8 @@ Doubler <- R6Class("Doubler", inherit = Resetter)
 
 decorate("reset", timed, class = Doubler)
 
-invisible(Doubler$new()$reset())   # timed
-invisible(Resetter$new()$reset())  # not timed
+invisible(Doubler$new()$reset()) # timed
+invisible(Resetter$new()$reset()) # not timed
 ```
 
 For public methods the replacement form also works, and takes the same shape as

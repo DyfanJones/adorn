@@ -18,9 +18,11 @@
 #' If your decorator stores the result of `f(...)` before returning it, use
 #' `withVisible()` to keep functions that return `invisible()` quiet.
 #'
-#' Whatever the style, the decorated function keeps the formal arguments of
-#' the original, so argument matching, `missing()`, defaults and
-#' introspection all behave as before.
+#' By default the decorated function keeps the formal arguments of the
+#' original, so argument matching, `missing()` and defaults behave as before.
+#' A factory can instead set `formals = "replace"` to give the decorated
+#' function the formals of the function it returns, which lets it change the
+#' signature (see `vignette("partial-decorators")`).
 #'
 #' @param wrapper A function, as described above.
 #' @param name Name shown when printing the decorator and in
@@ -28,6 +30,13 @@
 #'   when applied with `%@%` (`timed %@% f` gives `"timed"`, and
 #'   `retry(times = 5) %@% f` gives `"retry"`). Set it to override that;
 #'   `"decorator"` is the last resort.
+#' @param formals What happens to the formal arguments of the decorated
+#'   function. `"keep"` (the default) keeps those of the original. `"replace"`
+#'   swaps them for those of the function a factory returns; it is an error
+#'   for call style, which has no returned function. With `"replace"`, matching,
+#'   defaults and `missing()` follow the returned function, so getting them
+#'   right is up to the decorator. S3, S4 and S7 methods must still match their
+#'   generic.
 #' @return A decorator: a function that decorates a function when called with
 #'   one, and returns a configured decorator when called with parameters.
 #' @export
@@ -55,7 +64,17 @@
 #'
 #' ones <- repeated(times = 3) %@% function() 1
 #' ones()
-decorator <- function(wrapper, name = NULL) {
+#'
+#' # Replacing the formals: the decorated function takes only `y`
+#' two_to := decorator(function(f) function(y) f(2, y), formals = "replace")
+#' pow := two_to %@% function(x, y) x^y
+#' pow(3)
+decorator <- function(
+  wrapper,
+  name = NULL,
+  formals = c("keep", "replace")
+) {
+  formals_mode <- match.arg(formals)
   stopifnot(is.function(wrapper))
   fmls <- names(formals(wrapper))
   if (length(fmls) == 0L || identical(fmls[[1L]], "...")) {
@@ -79,14 +98,38 @@ decorator <- function(wrapper, name = NULL) {
     params <- fmls[seq_along(fmls) > dots]
   }
 
-  new_decorator(wrapper, style, params, list(), name)
+  if (style == "call" && formals_mode == "replace") {
+    stop(
+      paste(
+        "`formals = \"replace\"` needs a factory-style decorator.",
+        "A call-style `wrapper` has no returned function to take the formals from."
+      ),
+      call. = FALSE
+    )
+  }
+
+  new_decorator(wrapper, style, params, list(), name, formals_mode)
 }
 
-new_decorator <- function(wrapper, style, params, config, name) {
+new_decorator <- function(
+  wrapper,
+  style,
+  params,
+  config,
+  name,
+  formals_mode = "keep"
+) {
   self <- function(...) {
     args <- list(...)
     if (length(args) == 1L && is.function(args[[1L]]) && is.null(names(args))) {
-      return(decorate_function(args[[1L]], wrapper, style, config, name))
+      return(decorate_function(
+        args[[1L]],
+        wrapper,
+        style,
+        config,
+        name,
+        formals_mode
+      ))
     }
     if (length(args) == 0L) {
       return(object)
@@ -108,7 +151,14 @@ new_decorator <- function(wrapper, style, params, config, name) {
       )
     }
     names(args) <- nms
-    new_decorator(wrapper, style, params, utils::modifyList(config, args), name)
+    new_decorator(
+      wrapper,
+      style,
+      params,
+      utils::modifyList(config, args),
+      name,
+      formals_mode
+    )
   }
   object <- structure(self, class = c("adorn_decorator", "function"))
   object
@@ -122,6 +172,9 @@ print.adorn_decorator <- function(x, ...) {
     env$name %||% "anonymous",
     env$style
   ))
+  if (!identical(env$formals_mode, "keep")) {
+    cat(sprintf("  formals: %s\n", env$formals_mode))
+  }
   if (length(env$params)) {
     cat(sprintf("  parameters: %s\n", paste(env$params, collapse = ", ")))
   }
@@ -204,7 +257,14 @@ fill <- function(template, values, env) {
   eval(eval(call("substitute", template, values)), env)
 }
 
-decorate_function <- function(f, wrapper, style, config, dec_name) {
+decorate_function <- function(
+  f,
+  wrapper,
+  style,
+  config,
+  dec_name,
+  formals_mode = "keep"
+) {
   dec_name <- dec_name %||% "decorator"
   # Bake configured parameters into the wrapper's defaults.
   w <- wrapper
@@ -248,6 +308,9 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   assign(arg_name, f, envir = call_env)
   assign(".holder", holder, envir = call_env)
 
+  # Where the decorated function's formals come from; see `decorator()`.
+  formals_from <- f
+
   if (style == "call") {
     # Hot path: runs on every call, so no bookkeeping.
     # The parent of the decorated function's frame is its current closure.
@@ -282,6 +345,9 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
         call. = FALSE
       )
     }
+    if (formals_mode == "replace") {
+      formals_from <- run
+    }
     # From here the name refers to the returned function.
     assign(call_name, run, envir = call_env)
     # Usual case: the stand-in is already bound to this environment. Otherwise
@@ -302,7 +368,7 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
   # The decoration this one wraps, if `f` was already decorated.
   attr(invoke, "adorn_inner") <- attr(f, "adorn")$holder
 
-  out <- forward_formals(f, invoke)
+  out <- forward_formals(formals_from, invoke, env = f_env)
 
   prev <- attr(f, "adorn")
   if (!is.null(prev$holder)) {
@@ -324,14 +390,16 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
 # Build a function with `f`'s formals whose body calls `invoke` with every
 # formal forwarded. `invoke` (a function or expression) is embedded as a
 # literal, so the result survives its environment being replaced (e.g. by R6).
-forward_formals <- function(f, invoke) {
+# `env` is the result's environment: normally `f`'s, but when the formals come
+# from another function it must still be the decorated function's.
+forward_formals <- function(f, invoke, env = environment(f) %||% baseenv()) {
   fmls <- formals(f) %||% formals(args(f))
   nms <- names(fmls)
   args <- lapply(nms, as.name)
   names(args) <- ifelse(nms == "...", "", nms)
   body <- as.call(c(list(invoke), args))
   out <- as.function(c(fmls %||% list(), list(body)))
-  environment(out) <- environment(f) %||% baseenv()
+  environment(out) <- env
   out
 }
 
@@ -399,7 +467,14 @@ name_decorator <- function(dec, expr) {
   if (is.null(env$style) || !is.null(env$name) || is.null(nm)) {
     return(dec)
   }
-  new_decorator(env$wrapper, env$style, env$params, env$config, nm)
+  new_decorator(
+    env$wrapper,
+    env$style,
+    env$params,
+    env$config,
+    nm,
+    env$formals_mode
+  )
 }
 
 # `timed` -> "timed"; `retry(times = 5)` -> "retry"; `pkg::timed` -> "timed".
