@@ -50,7 +50,7 @@ find_context <- function(from) {
     fn <- sys.function(i)
     ctx <- attr(fn, "adorn_ctx", exact = TRUE)
     if (!is.null(ctx)) {
-      if (isTRUE(attr(fn, "adorn_setup", exact = TRUE))) {
+      if (!is.null(attr(fn, "adorn_setup", exact = TRUE))) {
         return(list(ctx = ctx, frame = 0L, holder = NULL, inner = NULL))
       }
       return(list(
@@ -72,7 +72,7 @@ context_name <- function(entry) {
   if (entry$frame == 0L) {
     return(entry$ctx$name)
   }
-  if (!isTRUE(entry$holder$wrapped)) {
+  if (!entry$holder$wrapped) {
     return(name_from_call(sys.call(entry$frame), entry$ctx$name))
   }
   frame_env <- sys.frame(entry$frame)
@@ -125,12 +125,12 @@ decorator_context <- function() {
     ctx$name <- context_name(entry)
     return(ctx)
   }
-  if (isTRUE(attr(fn, "adorn_setup", exact = TRUE))) {
+  if (!is.null(attr(fn, "adorn_setup", exact = TRUE))) {
     return(ctx)
   }
 
   holder <- attr(fn, "adorn_holder", exact = TRUE)
-  if (isTRUE(holder$wrapped)) {
+  if (holder$wrapped) {
     entry <- list(
       ctx = ctx,
       frame = n - 3L,
