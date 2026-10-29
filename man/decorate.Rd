@@ -7,7 +7,7 @@
 \usage{
 decorate(target, decorator, ...)
 
-decorate(target, signature) <- value
+decorate(target, signature, ...) <- value
 }
 \arguments{
 \item{target}{What to decorate; see the table above.}

@@ -264,12 +264,13 @@ method(decorate, new_S3_class("S7_generic")) <- function(
 `decorate<-` <- new_generic(
   "decorate<-",
   "target",
-  function(target, signature, value) S7_dispatch()
+  function(target, signature, ..., value) S7_dispatch()
 )
 
 method(`decorate<-`, class_function) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   generic <- s3_generic_name(target)
@@ -288,6 +289,7 @@ method(`decorate<-`, class_function) <- function(
 method(`decorate<-`, methods::getClass("standardGeneric")) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   decorate_s4_method(target, value, signature, topenv(parent.frame(2)))
@@ -297,6 +299,7 @@ method(`decorate<-`, methods::getClass("standardGeneric")) <- function(
 method(`decorate<-`, new_S3_class("S7_generic")) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   decorate_s7_method(target, value, signature)
@@ -306,6 +309,7 @@ method(`decorate<-`, new_S3_class("S7_generic")) <- function(
 method(`decorate<-`, new_S3_class("R6ClassGenerator")) <- function(
   target,
   signature,
+  ...,
   value
 ) {
   decorate_r6_methods(target, value, signature)
