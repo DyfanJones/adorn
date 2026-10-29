@@ -10,7 +10,8 @@ URL: https://dyfanjones.github.io/adorn/, https://github.com/DyfanJones/adorn
 BugReports: https://github.com/DyfanJones/adorn/issues
 Depends:
     R (>= 4.4.0)
-Imports: methods, S7 (>= 0.2.0), utils
+Imports: methods, S7 (>= 0.2.2.9000), utils
+Remotes: RConsortium/S7
 Suggests: 
     litedown,
     R6,
@@ -23,4 +24,5 @@ Collate:
     'context.R'
     'decorator.R'
     'decorate.R'
+    'reexport-S7.R'
 VignetteBuilder: litedown

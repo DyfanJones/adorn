@@ -253,7 +253,12 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     # The parent of the decorated function's frame is its current closure.
     invoke <- fill(
       call_template,
-      list(.f_env = f_env, .call = call_sym, .arg = arg_sym, .with_env = with_env),
+      list(
+        .f_env = f_env,
+        .call = call_sym,
+        .arg = arg_sym,
+        .with_env = with_env
+      ),
       call_env
     )
   } else {
@@ -283,7 +288,12 @@ decorate_function <- function(f, wrapper, style, config, dec_name) {
     # (e.g. R6 objects) it is rebound for the duration of the call.
     invoke <- fill(
       factory_template,
-      list(.holder_obj = holder, .call = call_sym, .arg = arg_sym, .with_env = with_env),
+      list(
+        .holder_obj = holder,
+        .call = call_sym,
+        .arg = arg_sym,
+        .with_env = with_env
+      ),
       call_env
     )
   }
@@ -348,6 +358,10 @@ forward_formals <- function(f, invoke) {
 #' @examples
 #' loud <- decorator(function(f, ...) toupper(f(...))) %@% function() "hi"
 #' loud()
+#'
+#' # `:=` is re-exported from S7 and supplies `name`
+#' add_one := decorator(function(f, ...) f(...)) %@% function(x) x + 1
+#' add_one(1)
 `%@%` <- function(lhs, rhs, name = NULL) {
   if (!is.function(lhs)) {
     stop("Left-hand side of `%@%` must be a decorator.", call. = FALSE)

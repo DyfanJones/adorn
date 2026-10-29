@@ -31,4 +31,8 @@ decorator on the left-hand side.
 \examples{
 loud <- decorator(function(f, ...) toupper(f(...))) \%@\% function() "hi"
 loud()
+
+# `:=` is re-exported from S7 and supplies `name`
+add_one := decorator(function(f, ...) f(...)) \%@\% function(x) x + 1
+add_one(1)
 }

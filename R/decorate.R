@@ -1,5 +1,6 @@
 #' @include context.R decorator.R
 #' @importFrom methods getClass getMethod setMethod
+#' @importFrom S7 new_generic S7_dispatch method class_function new_S3_class
 NULL
 
 #' Decorate a function or an existing method
@@ -164,7 +165,7 @@ decorate_s7_method <- function(target, decorator, class) {
   }
   method <- S7::method(target, class)
   decorated <- apply_named(decorator, method, target@name)
-  suppressMessages(S7::`method<-`(target, class, value = decorated))
+  suppressMessages(S7::method(target, class) <- decorated)
   invisible(decorated)
 }
 
