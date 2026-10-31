@@ -25,9 +25,38 @@ test_that("parameterised decorators are configured by calling them", {
   repeated <- decorator(function(f, ..., times = 2) rep(f(...), times))
   f <- repeated(times = 3) %@% function() "a"
   expect_equal(f(), rep("a", 3))
-  g <- repeated(4) %@% function() "b"
-  expect_equal(length(g()), 4)
-  expect_error(repeated(nope = 1), "Unknown parameter")
+  expect_error(repeated(nope = 1), "unused argument")
+})
+
+test_that("a function passed positionally is always decorated", {
+  on_call <- decorator(function(f, hook = function(x) NULL) {
+    function(...) {
+      hook("called")
+      f(...)
+    }
+  })
+  seen <- NULL
+  g <- on_call(hook = function(x) seen <<- x) %@% function() 1
+  expect_equal(g(), 1)
+  expect_equal(seen, "called")
+  # A positional function is the one to decorate, never a parameter value.
+  h <- on_call(function() 2)
+  expect_equal(h(), 2)
+  # Parameters can be given alongside the function.
+  seen <- NULL
+  k <- on_call(function() 3, hook = function(x) seen <<- x)
+  expect_equal(k(), 3)
+  expect_equal(seen, "called")
+})
+
+test_that("decorators show the wrapper's formals", {
+  repeated <- decorator(function(f, ..., times = 2, sep) NULL)
+  expect_equal(names(formals(repeated)), c("f", "times", "sep"))
+  expect_equal(formals(repeated)$times, 2)
+  expect_equal(formals(repeated(times = 5))$times, 5)
+  setup <- decorator(function(fn) function(...) fn(...))
+  expect_equal(names(formals(setup)), "fn")
+  expect_equal(names(formals(setup %@% setup)), "f")
 })
 
 test_that("factory-style decorators keep per-function state", {
@@ -302,8 +331,8 @@ test_that("composed decorators cannot be configured", {
   a <- decorator(function(f, ...) f(...))
   b <- decorator(function(f, ...) f(...))
   both <- a %@% b
-  expect_error(both(times = 2), "Composed decorators cannot be configured")
-  expect_error(both(1, 2), "Composed decorators cannot be configured")
+  expect_error(both(), "Composed decorators cannot be configured")
+  expect_error(both(times = 2), "unused argument")
 })
 
 test_that("the right-hand side of %@% must be a function", {
@@ -316,4 +345,22 @@ test_that("non-decorator functions work as plain decorators", {
   plain <- function(f) function(...) f(...) + 1
   f <- plain %@% function() 1
   expect_equal(f(), 2)
+})
+
+test_that("parameters named like the internal variable do not collide", {
+  # `.config` and `..config` are the names the decorator would use internally.
+  dec <- decorator(function(f, ..., .config = "a", ..config = "b") {
+    paste(.config, ..config)
+  })
+  g <- dec(.config = "X", ..config = "Y") %@% function() 1
+  expect_equal(g(), "X Y")
+  expect_equal(names(formals(dec)), c("f", ".config", "..config"))
+})
+
+test_that("avoid_all() returns a name that is not taken", {
+  avoid_all <- getFromNamespace("avoid_all", "adorn")
+  expect_equal(avoid_all("x", c("a", "b")), "x")
+  expect_equal(avoid_all("x", c("x")), ".x")
+  expect_equal(avoid_all("x", c("x", ".x")), "..x")
+  expect_equal(avoid_all("x", c("x", ".x", "..x")), "...x")
 })
