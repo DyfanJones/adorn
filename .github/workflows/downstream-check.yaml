@@ -1,0 +1,45 @@
+# R CMD check of a small package that uses decorator(), to catch NOTEs that
+# only appear downstream (undefined globals, defaults resolved in the wrong
+# environment).
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+name: downstream-check.yaml
+
+permissions: read-all
+
+jobs:
+  downstream-check:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      - name: Install adorn
+        run: R CMD INSTALL .
+        shell: bash
+
+      - name: Check the downstream package
+        shell: Rscript {0}
+        run: |
+          res <- rcmdcheck::rcmdcheck(
+            "tests/downstream/adornpkg",
+            args = c("--no-manual"),
+            error_on = "never"
+          )
+          print(res)
+          if (length(c(res$errors, res$warnings, res$notes))) {
+            stop("Downstream check found problems.")
+          }

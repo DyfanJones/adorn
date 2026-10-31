@@ -168,7 +168,17 @@ new_decorator <- function(
   }
   nms <- names(fmls)
 
-  if (any(startsWith(nms, ".a_"))) {
+  # The decorator's environment is a child of the wrapper's, so default
+  # arguments see the objects of the package that defined the decorator.
+  env <- new.env(parent = environment(wrapper) %||% baseenv())
+  env$.a_wrapper <- wrapper
+  env$.a_style <- style
+  env$.a_params <- params
+  env$.a_name <- name
+  env$.a_formals_mode <- formals_mode
+  env$.a_config <- config
+
+  if (any(startsWith(nms, ".a_")) || "<-" %in% nms) {
     # Rare: a parameter could shadow the internal `.a_` names, so embed
     # everything the body needs as literals instead.
     body <- literal_body(
@@ -188,17 +198,11 @@ new_decorator <- function(
     if (is.null(body)) {
       body <- body_cache[[key]] <- make_body(nms[[1L]], params)
     }
-    .a_new <- new_decorator
-    .a_decorate <- decorate_function
-    .a_shift <- shift_args
-    .a_wrapper <- wrapper
-    .a_style <- style
-    .a_params <- params
-    .a_name <- name
-    .a_formals_mode <- formals_mode
-    .a_config <- config
+    env$.a_new <- new_decorator
+    env$.a_decorate <- decorate_function
+    env$.a_shift <- shift_args
   }
-  self <- as.function(c(fmls, list(body)), envir = environment())
+  self <- as.function(c(fmls, list(body)), envir = env)
   class(self) <- decorator_class
   self
 }
@@ -224,11 +228,14 @@ make_body <- function(fn, params) {
   }
   cfg <- quote(.a_cfg)
   steps <- lapply(params, function(p) {
-    subst(param_template, c(list(.p = as.name(p), .cfg = cfg, .key = p), prims))
+    subst(
+      param_template,
+      c(list(.p = as.name(p), .cfg = cfg, .key = p, .assign = assign_sym), prims)
+    )
   })
   rest <- as.call(c(
     list(prims$.brace),
-    list(as.call(list(prims$.assign, cfg, quote(.a_config)))),
+    list(as.call(list(assign_sym, cfg, quote(.a_config)))),
     steps,
     list(dispatch_body(fn, cfg))
   ))
@@ -332,8 +339,13 @@ literal_body <- function(
 ) {
   # Local variable holding the configuration; must not collide with a param.
   cfg <- as.name(avoid_all(".config", nms))
+  # A parameter named `<-` is the one case that needs the embedded primitive.
+  assign_fn <- if ("<-" %in% nms) `<-` else assign_sym
   steps <- lapply(params, function(p) {
-    subst(param_template, c(list(.p = as.name(p), .cfg = cfg, .key = p), prims))
+    subst(
+      param_template,
+      c(list(.p = as.name(p), .cfg = cfg, .key = p, .assign = assign_fn), prims)
+    )
   })
   dispatch <- subst(
     dispatch_template,
@@ -354,7 +366,7 @@ literal_body <- function(
   )
   rest <- as.call(c(
     list(prims$.brace),
-    list(as.call(list(prims$.assign, cfg, config))),
+    list(as.call(list(assign_fn, cfg, config))),
     steps,
     list(dispatch)
   ))
@@ -368,7 +380,7 @@ formals_choices <- c("keep", "replace")
 # placeholders. `substitute()` is far cheaper than `bquote()`.
 #
 # The body never looks up a function by name: `if`, `{`, `<-`, `!` and the rest
-# are embedded as the functions themselves (the `prims` below). The body runs
+# are embedded as the functions themselves (the `prims` below), except `<-`. The body runs
 # in the same frame as the decorator's parameters, so a parameter holding a
 # function and named `if` or `list` would otherwise be called instead.
 param_template <- quote(
@@ -391,6 +403,9 @@ needs_shift_template <- quote(
   .if(.and(.not(.missing(.fn)), .not(.is_function(.fn))), .shift_call, .rest)
 )
 
+# `<-` stays a symbol so that R CMD check sees `.a_cfg` being assigned.
+assign_sym <- quote(`<-`)
+
 prims <- list(
   .and = `&&`,
   .is_function = is.function,
@@ -400,7 +415,6 @@ prims <- list(
   .if = `if`,
   .not = `!`,
   .missing = missing,
-  .assign = `<-`,
   .brace = `{`,
   .set_config = function(config, key, value) {
     config[key] <- list(value)
@@ -430,19 +444,19 @@ print.adorn_decorator <- function(x, ...) {
   env <- environment(x)
   cat(sprintf(
     "<decorator: %s> [%s style]\n",
-    env$name %||% "anonymous",
-    env$style
+    env$.a_name %||% "anonymous",
+    env$.a_style
   ))
-  if (!identical(env$formals_mode, "keep")) {
-    cat(sprintf("  formals: %s\n", env$formals_mode))
+  if (!identical(env$.a_formals_mode, "keep")) {
+    cat(sprintf("  formals: %s\n", env$.a_formals_mode))
   }
-  if (length(env$params)) {
-    cat(sprintf("  parameters: %s\n", paste(env$params, collapse = ", ")))
+  if (length(env$.a_params)) {
+    cat(sprintf("  parameters: %s\n", paste(env$.a_params, collapse = ", ")))
   }
-  if (length(env$config)) {
+  if (length(env$.a_config)) {
     config <- paste(
-      names(env$config),
-      vapply(env$config, format, ""),
+      names(env$.a_config),
+      vapply(env$.a_config, format, ""),
       sep = " = "
     )
     cat(sprintf("  configured: %s\n", paste(config, collapse = ", ")))
@@ -722,16 +736,16 @@ forward_formals <- function(f, invoke, env = environment(f) %||% baseenv()) {
 # function, or a composition) is simply called.
 apply_decorator <- function(dec, f, expr) {
   env <- if (inherits(dec, "adorn_decorator")) environment(dec)
-  if (is.null(env$style)) {
+  if (is.null(env$.a_style)) {
     return(dec(f))
   }
   decorate_function(
     f,
-    env$wrapper,
-    env$style,
-    env$config,
-    env$name %||% infer_name(expr),
-    env$formals_mode
+    env$.a_wrapper,
+    env$.a_style,
+    env$.a_config,
+    env$.a_name %||% infer_name(expr),
+    env$.a_formals_mode
   )
 }
 

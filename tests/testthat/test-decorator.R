@@ -504,3 +504,37 @@ test_that("a non-function that cannot be shifted gives a clear error", {
   none <- decorator(function(f) f)
   expect_error(none("x"), "`f` must be a function")
 })
+
+test_that("a decorator's body has no undefined globals for R CMD check", {
+  skip_if_not_installed("codetools")
+  with_params <- decorator(function(f, ..., times = 2, label = "x") f(...))
+  no_params <- decorator(function(f, ...) f(...))
+  literal <- decorator(function(f, ..., .a_x = 1) f(...))
+  for (d in list(with_params, no_params, literal)) {
+    out <- capture.output(codetools::checkUsage(d, all = TRUE))
+    expect_false(any(grepl(".a_cfg", out, fixed = TRUE)), info = out)
+  }
+})
+
+test_that("a decorator's defaults can see the wrapper's environment", {
+  ns <- new.env(parent = globalenv())
+  ns$helper <- function() "from ns"
+  w <- function(f, ..., hook = helper) f(...)
+  environment(w) <- ns
+  d <- decorator(w)
+  expect_identical(parent.env(environment(d)), ns)
+  expect_equal(eval(formals(d)$hook, environment(d)), ns$helper)
+})
+
+test_that("leading positional arguments still set parameters", {
+  dec <- decorator(function(f, ..., dir = "a") paste(dir, f(...)))
+  g <- dec("b") %@% function() "x"
+  expect_equal(g(), "b x")
+})
+
+test_that("every parameter appears in the decorator's formals", {
+  dec <- decorator(function(f, ..., a = 1, b = 2) f(...))
+  expect_named(formals(dec), c("f", "a", "b"))
+  fac <- decorator(function(f, a = 1) function(...) f(...))
+  expect_named(formals(fac), c("f", "a"))
+})

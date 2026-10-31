@@ -12,7 +12,8 @@ Depends:
     R (>= 4.4.0)
 Imports: methods, S7 (>= 0.2.2.9000), utils
 Remotes: RConsortium/S7
-Suggests: 
+Suggests:
+    codetools,
     litedown,
     R6,
     testthat (>= 3.0.0)
