@@ -6,6 +6,7 @@
 }
 
 .onUnload <- function(...) {
+  clear_body_cache()
   S7_on_unload()
 }
 # nocov end

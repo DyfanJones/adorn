@@ -24,8 +24,9 @@ right is up to the decorator. S3, S4 and S7 methods must still match their
 generic.}
 }
 \value{
-A decorator: a function that decorates a function when called with
-one, and returns a configured decorator when called with parameters.
+A decorator: a function with the formals \verb{function(f, <params>)}.
+It decorates \code{f} when given one, and returns a configured decorator when
+\code{f} is missing.
 }
 \description{
 \code{decorator()} turns an ordinary function into a decorator. The first
@@ -42,8 +43,14 @@ when the decorator needs state, such as a cache.
 }
 
 Arguments after \code{...} (call style) or after \code{f} (factory style) are
-decorator parameters. Set them by calling the decorator:
-\code{retry(times = 5)}, for a decorator named \code{retry}.
+decorator parameters. Set them by calling the decorator with named
+arguments: \code{retry(times = 5)}, for a decorator named \code{retry}.
+
+The decorator takes the formals of \code{wrapper} without the \code{...}, so
+\code{args(retry)} shows \verb{function(f, times = 3)} and editors can complete it.
+A function passed to the decorator is always the one to decorate, never a
+parameter value, so give function-valued parameters by name:
+\code{on_call(hook = my_hook)}.
 
 If your decorator stores the result of \code{f(...)} before returning it, use
 \code{withVisible()} to keep functions that return \code{invisible()} quiet.

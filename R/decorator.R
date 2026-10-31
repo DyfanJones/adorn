@@ -12,8 +12,14 @@
 #'   when the decorator needs state, such as a cache.
 #'
 #' Arguments after `...` (call style) or after `f` (factory style) are
-#' decorator parameters. Set them by calling the decorator:
-#' `retry(times = 5)`, for a decorator named `retry`.
+#' decorator parameters. Set them by calling the decorator with named
+#' arguments: `retry(times = 5)`, for a decorator named `retry`.
+#'
+#' The decorator takes the formals of `wrapper` without the `...`, so
+#' `args(retry)` shows `function(f, times = 3)` and editors can complete it.
+#' A function passed to the decorator is always the one to decorate, never a
+#' parameter value, so give function-valued parameters by name:
+#' `on_call(hook = my_hook)`.
 #'
 #' If your decorator stores the result of `f(...)` before returning it, use
 #' `withVisible()` to keep functions that return `invisible()` quiet.
@@ -37,8 +43,9 @@
 #'   defaults and `missing()` follow the returned function, so getting them
 #'   right is up to the decorator. S3, S4 and S7 methods must still match their
 #'   generic.
-#' @return A decorator: a function that decorates a function when called with
-#'   one, and returns a configured decorator when called with parameters.
+#' @return A decorator: a function with the formals `function(f, <params>)`.
+#'   It decorates `f` when given one, and returns a configured decorator when
+#'   `f` is missing.
 #' @export
 #' @examples
 #' # Call style: runs on every call
@@ -74,8 +81,15 @@ decorator <- function(
   name = NULL,
   formals = c("keep", "replace")
 ) {
-  formals_mode <- match.arg(formals)
-  stopifnot(is.function(wrapper))
+  # `match.arg()` is slow, so it is only used for a value the user gave.
+  formals_mode <- if (identical(formals, formals_choices)) {
+    "keep"
+  } else {
+    match.arg(formals)
+  }
+  if (!is.function(wrapper)) {
+    stop("`wrapper` must be a function.", call. = FALSE)
+  }
   fmls <- names(formals(wrapper))
   if (length(fmls) == 0L || identical(fmls[[1L]], "...")) {
     stop(
@@ -119,49 +133,191 @@ new_decorator <- function(
   name,
   formals_mode = "keep"
 ) {
-  self <- function(...) {
-    args <- list(...)
-    if (length(args) == 1L && is.function(args[[1L]]) && is.null(names(args))) {
-      return(decorate_function(
-        args[[1L]],
-        wrapper,
-        style,
-        config,
-        name,
-        formals_mode
-      ))
-    }
-    if (length(args) == 0L) {
-      return(object)
-    }
-    nms <- names(args) %||% rep("", length(args))
-    # Unnamed arguments fill the remaining parameters in order.
-    free <- setdiff(params, nms)
-    nms[nms == ""] <- free[seq_len(sum(nms == ""))]
-    bad <- setdiff(nms, params)
-    if (length(bad) > 0L || anyNA(nms)) {
-      stop(
-        sprintf(
-          "Unknown parameter(s) for decorator `%s`: %s. Available: %s.",
-          name %||% "decorator",
-          paste(bad, collapse = ", "),
-          if (length(params)) paste(params, collapse = ", ") else "none"
-        ),
-        call. = FALSE
-      )
-    }
-    names(args) <- nms
-    new_decorator(
+  # The decorator takes the wrapper's own formals (minus any `...`), so
+  # `args()` and code completion show how to use it. The decorated function's
+  # hot path is untouched.
+  fmls <- formals(wrapper)
+  fmls <- fmls[c(1L, match(params, names(fmls)))]
+  fmls[1L] <- list(quote(expr = ))
+  if (length(config)) {
+    fmls[names(config)] <- lapply(config, function(v) {
+      if (is.language(v)) call("quote", v) else v
+    })
+  }
+  nms <- names(fmls)
+
+  if (any(startsWith(nms, ".a_"))) {
+    # Rare: a parameter could shadow the internal `.a_` names, so embed
+    # everything the body needs as literals instead.
+    body <- literal_body(
+      nms,
       wrapper,
       style,
       params,
-      utils::modifyList(config, args),
+      config,
       name,
       formals_mode
     )
+  } else {
+    # The body depends only on the names, so it is built once per set of names
+    # and reused. Its values are read from the variables below.
+    key <- paste(nms, collapse = "\r")
+    body <- body_cache[[key]]
+    if (is.null(body)) {
+      body <- body_cache[[key]] <- make_body(nms[[1L]], params)
+    }
+    .a_new <- new_decorator
+    .a_decorate <- decorate_function
+    .a_wrapper <- wrapper
+    .a_style <- style
+    .a_params <- params
+    .a_name <- name
+    .a_formals_mode <- formals_mode
+    .a_config <- config
   }
-  object <- structure(self, class = c("adorn_decorator", "function"))
-  object
+  self <- as.function(c(fmls, list(body)), envir = environment())
+  class(self) <- decorator_class
+  self
+}
+
+# Cache of decorator bodies, keyed by the decorator's formal names.
+body_cache <- new.env(parent = emptyenv())
+
+clear_body_cache <- function() {
+  rm(list = ls(body_cache, all.names = TRUE), envir = body_cache)
+  invisible()
+}
+
+# Body that reads its values from `.a_` variables in the decorator's
+# environment. With no parameters the configuration never changes, so the body
+# is just the dispatch.
+make_body <- function(fn, params) {
+  if (length(params) == 0L) {
+    return(dispatch_body(fn, quote(.a_config)))
+  }
+  cfg <- quote(.a_cfg)
+  steps <- lapply(params, function(p) {
+    subst(param_template, c(list(.p = as.name(p), .cfg = cfg, .key = p), prims))
+  })
+  as.call(c(
+    list(prims$.brace),
+    list(as.call(list(prims$.assign, cfg, quote(.a_config)))),
+    steps,
+    list(dispatch_body(fn, cfg))
+  ))
+}
+
+# With a function: decorate it. Without: return a configured decorator.
+dispatch_body <- function(fn, cfg) {
+  subst(
+    dispatch_template,
+    c(
+      list(
+        .fn = as.name(fn),
+        .cfg = cfg,
+        .new = quote(.a_new),
+        .decorate = quote(.a_decorate),
+        .wrapper = quote(.a_wrapper),
+        .style = quote(.a_style),
+        .params = quote(.a_params),
+        .name = quote(.a_name),
+        .formals_mode = quote(.a_formals_mode)
+      ),
+      prims
+    )
+  )
+}
+
+# Same body with every value embedded as a literal, so no parameter name can
+# shadow it. Slower to build, so only used when a name could collide.
+literal_body <- function(
+  nms,
+  wrapper,
+  style,
+  params,
+  config,
+  name,
+  formals_mode
+) {
+  # Local variable holding the configuration; must not collide with a param.
+  cfg <- as.name(avoid_all(".config", nms))
+  steps <- lapply(params, function(p) {
+    subst(param_template, c(list(.p = as.name(p), .cfg = cfg, .key = p), prims))
+  })
+  dispatch <- subst(
+    dispatch_template,
+    c(
+      list(
+        .fn = as.name(nms[[1L]]),
+        .cfg = cfg,
+        .new = new_decorator,
+        .decorate = decorate_function,
+        .wrapper = wrapper,
+        .style = style,
+        .params = params,
+        .name = name,
+        .formals_mode = formals_mode
+      ),
+      prims
+    )
+  )
+  as.call(c(
+    list(prims$.brace),
+    list(as.call(list(prims$.assign, cfg, config))),
+    steps,
+    list(dispatch)
+  ))
+}
+
+decorator_class <- c("adorn_decorator", "function")
+formals_choices <- c("keep", "replace")
+
+# Templates for the body of a decorator; `subst()` fills in the `.name`
+# placeholders. `substitute()` is far cheaper than `bquote()`.
+#
+# The body never looks up a function by name: `if`, `{`, `<-`, `!` and the rest
+# are embedded as the functions themselves (the `prims` below). The body runs
+# in the same frame as the decorator's parameters, so a parameter holding a
+# function and named `if` or `list` would otherwise be called instead.
+param_template <- quote(
+  .if(.not(.missing(.p)), .assign(.cfg, .set_config(.cfg, .key, .p)))
+)
+
+dispatch_template <- quote(
+  .if(
+    .missing(.fn),
+    .new(.wrapper, .style, .params, .cfg, .name, .formals_mode),
+    .decorate(.fn, .wrapper, .style, .cfg, .name, .formals_mode)
+  )
+)
+
+prims <- list(
+  .if = `if`,
+  .not = `!`,
+  .missing = missing,
+  .assign = `<-`,
+  .brace = `{`,
+  .set_config = function(config, key, value) {
+    config[key] <- list(value)
+    config
+  }
+)
+
+subst <- function(template, values) {
+  eval(call("substitute", template, values))
+}
+
+# `name`, with leading dots added until it is not in `taken`.
+avoid_all <- function(name, taken) {
+  # Usually `name` is free. One dot is almost always enough; the loop only
+  # runs if the dotted name is taken too.
+  if (any(name == taken)) {
+    name <- sprintf(".%s", name)
+    while (any(name == taken)) {
+      name <- sprintf(".%s", name)
+    }
+  }
+  name
 }
 
 #' @export
@@ -434,9 +590,8 @@ forward_formals <- function(f, invoke, env = environment(f) %||% baseenv()) {
   if (!is.function(lhs)) {
     stop("Left-hand side of `%@%` must be a decorator.", call. = FALSE)
   }
-  lhs <- name_decorator(lhs, substitute(lhs))
   if (inherits(rhs, "adorn_decorator")) {
-    return(compose(lhs, name_decorator(rhs, substitute(rhs))))
+    return(compose(lhs, rhs, substitute(lhs), substitute(rhs)))
   }
   if (!is.function(rhs)) {
     stop("Right-hand side of `%@%` must be a function.", call. = FALSE)
@@ -453,26 +608,24 @@ forward_formals <- function(f, invoke, env = environment(f) %||% baseenv()) {
     e <- substitute(rhs)
     fn_name <- if (is.symbol(e)) as.character(e)
   }
-  with_binding_name(fn_name, lhs(rhs))
+  with_binding_name(fn_name, apply_decorator(lhs, rhs, substitute(lhs)))
 }
 
-# Name an unnamed decorator after the expression it was written as; an
-# explicit `name` is kept.
-name_decorator <- function(dec, expr) {
-  if (!inherits(dec, "adorn_decorator")) {
-    return(dec)
+# Apply `dec` to `f`. A decorator made by `decorator()` is applied directly,
+# named after the expression `expr` it was written as (unless it already has a
+# name), so no named copy has to be built on every use. Anything else (a plain
+# function, or a composition) is simply called.
+apply_decorator <- function(dec, f, expr) {
+  env <- if (inherits(dec, "adorn_decorator")) environment(dec)
+  if (is.null(env$style)) {
+    return(dec(f))
   }
-  env <- environment(dec)
-  nm <- infer_name(expr)
-  if (is.null(env$style) || !is.null(env$name) || is.null(nm)) {
-    return(dec)
-  }
-  new_decorator(
+  decorate_function(
+    f,
     env$wrapper,
     env$style,
-    env$params,
     env$config,
-    nm,
+    env$name %||% infer_name(expr),
     env$formals_mode
   )
 }
@@ -495,18 +648,20 @@ infer_name <- function(expr) {
   fn
 }
 
-compose <- function(outer, inner) {
-  self <- function(...) {
-    args <- list(...)
-    if (length(args) == 1L && is.function(args[[1L]]) && is.null(names(args))) {
-      return(outer(inner(args[[1L]])))
+# `outer_expr` and `inner_expr` are the expressions the decorators were written
+# as, used to name them.
+compose <- function(outer, inner, outer_expr, inner_expr) {
+  self <- function(f) {
+    if (missing(f)) {
+      stop(
+        "Composed decorators cannot be configured; configure each one first.",
+        call. = FALSE
+      )
     }
-    stop(
-      "Composed decorators cannot be configured; configure each one first.",
-      call. = FALSE
-    )
+    apply_decorator(outer, apply_decorator(inner, f, inner_expr), outer_expr)
   }
-  structure(self, class = c("adorn_decorator", "function"))
+  class(self) <- decorator_class
+  self
 }
 
 #' Inspect a decorated function
