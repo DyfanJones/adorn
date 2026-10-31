@@ -114,6 +114,13 @@ test_that("wrapper survives having its environment replaced", {
 
 test_that("invalid decorators are rejected", {
   expect_error(decorator(function(...) 1), "first argument")
+  # A default on the first argument means a parameter is in the wrong place.
+  expect_error(
+    decorator(function(bob = "yo", f) function(...) f(...)),
+    "`bob` can't have a default"
+  )
+  expect_error(decorator(function(f = NULL, ..., x = 1) f(...)), "can't have")
+  expect_no_error(decorator(function(f, bob = "yo") function(...) f(...)))
   expect_error(decorator(function(f, x, ...) 1), "directly follow")
   bad <- decorator(function(f) 1)
   expect_error(bad %@% function() 1, "must return a function")
@@ -438,4 +445,62 @@ test_that("the body cache is reused and can be cleared", {
   expect_equal((d1 %@% add)(1, 2), 3)
   expect_equal((d1(n = 9) %@% add)(1, 2), 3)
   expect_length(ls(cache, all.names = TRUE), 1L)
+})
+
+test_that("a leading non-function argument is a parameter, not the function", {
+  tag <- decorator(function(f, first = "a", second = "b") {
+    function(...) paste(first, second, f(...))
+  })
+  one <- function() "x"
+
+  expect_equal((tag("p") %@% one)(), "p b x")
+  expect_equal((tag("p", "q") %@% one)(), "p q x")
+  expect_equal((tag("p", second = "q") %@% one)(), "p q x")
+  expect_equal((tag(second = "q", "p") %@% one)(), "p q x")
+  expect_equal((tag(NULL) %@% one)(), " b x")
+})
+
+test_that("a function is still the function to decorate", {
+  tag <- decorator(function(f, first = "a") function(...) paste(first, f(...)))
+  expect_equal(tag(function() "x")(), "a x")
+  expect_equal((tag(first = "p") %@% function() "x")(), "p x")
+  expect_s3_class(tag(), "adorn_decorator")
+})
+
+test_that("shifting works for call-style decorators", {
+  rep_n <- decorator(function(f, ..., times = 2) rep(f(...), times))
+  expect_equal((rep_n(3) %@% function() "a")(), rep("a", 3))
+})
+
+test_that("shifted arguments are evaluated once", {
+  tag <- decorator(function(f, first = "a", second = "b") f)
+  n <- 0
+  m <- 0
+  tag({
+    n <- n + 1
+    "p"
+  }, {
+    m <- m + 1
+    "q"
+  }) %@% function() 1
+  expect_equal(c(n, m), c(1, 1))
+})
+
+test_that("code passed as a parameter value stays a value", {
+  tag <- decorator(function(f, first = "a") function() first)
+  d <- tag(quote(x + y)) %@% function() 1
+  expect_equal(d(), quote(x + y))
+})
+
+test_that("shifting works when the first formal has another name", {
+  tag <- decorator(function(fn, first = "a") function(...) first)
+  expect_equal((tag("p") %@% function() 1)(), "p")
+})
+
+test_that("a non-function that cannot be shifted gives a clear error", {
+  tag <- decorator(function(f, first = "a") f)
+  expect_error(tag(f = "x"), "must be a function.*tag\\(first")
+  expect_error(tag("a", "b"), "unused argument")
+  none <- decorator(function(f) f)
+  expect_error(none("x"), "`f` must be a function")
 })

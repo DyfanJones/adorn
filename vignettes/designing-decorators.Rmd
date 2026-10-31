@@ -374,6 +374,9 @@ when it is applied:
 # The function to decorate must be the first argument.
 decorator(function(...) 1)
 
+# It receives the function to decorate, so it can't have a default.
+decorator(function(bob = "yo", f) f)
+
 # In call style, `...` must come straight after it.
 decorator(function(f, x, ...) 1)
 

@@ -7,7 +7,8 @@
 decorator(wrapper, name = NULL, formals = c("keep", "replace"))
 }
 \arguments{
-\item{wrapper}{A function, as described above.}
+\item{wrapper}{A function, as described above. Its first argument receives
+the function to decorate, so it can't have a default.}
 
 \item{name}{Name shown when printing the decorator and in
 \code{\link[=decorators]{decorators()}}. By default it is taken from how the decorator is written
@@ -30,8 +31,11 @@ It decorates \code{f} when given one, and returns a configured decorator when
 }
 \description{
 \code{decorator()} turns an ordinary function into a decorator. The first
-argument of \code{wrapper} receives the function being decorated. There are two
-styles, chosen by whether \code{wrapper} has a \code{...} argument:
+argument of \code{wrapper} receives the function being decorated, whatever it is
+named, and it can't have a default. adorn can't check the name, so
+\verb{function(bob, f)} is accepted but treats \code{bob} as the function; put
+parameters after the first argument. There are two styles, chosen by whether
+\code{wrapper} has a \code{...} argument:
 }
 \details{
 \itemize{
@@ -50,7 +54,8 @@ The decorator takes the formals of \code{wrapper} without the \code{...}, so
 \code{args(retry)} shows \verb{function(f, times = 3)} and editors can complete it.
 A function passed to the decorator is always the one to decorate, never a
 parameter value, so give function-valued parameters by name:
-\code{on_call(hook = my_hook)}.
+\code{on_call(hook = my_hook)}. If the first argument is not a function, it is
+taken as the first parameter, so \code{retry(5)} means \code{retry(times = 5)}.
 
 If your decorator stores the result of \code{f(...)} before returning it, use
 \code{withVisible()} to keep functions that return \code{invisible()} quiet.

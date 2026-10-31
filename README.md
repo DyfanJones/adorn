@@ -115,6 +115,11 @@ A decorator is an ordinary function whose first argument is the function being
 decorated. `decorator()` turns it into a decorator. There are two styles,
 chosen by whether your function has a `...` argument.
 
+The first argument always receives the function to decorate, whatever you name
+it, and it can't have a default. Decorator parameters go after it. adorn can't
+check the name, so a signature like `function(bob, f)` is accepted but treats
+`bob` as the function.
+
 **Call style** runs on every call. Arguments after `...` are parameters, set by
 calling the decorator.
 

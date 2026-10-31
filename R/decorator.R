@@ -2,8 +2,11 @@
 #'
 #'
 #' `decorator()` turns an ordinary function into a decorator. The first
-#' argument of `wrapper` receives the function being decorated. There are two
-#' styles, chosen by whether `wrapper` has a `...` argument:
+#' argument of `wrapper` receives the function being decorated, whatever it is
+#' named, and it can't have a default. adorn can't check the name, so
+#' `function(bob, f)` is accepted but treats `bob` as the function; put
+#' parameters after the first argument. There are two styles, chosen by whether
+#' `wrapper` has a `...` argument:
 #'
 #' * **Call style**, `function(f, ..., <params>)`: the body runs on every call.
 #'   `...` holds the arguments of that call; forward them with `f(...)`.
@@ -19,7 +22,8 @@
 #' `args(retry)` shows `function(f, times = 3)` and editors can complete it.
 #' A function passed to the decorator is always the one to decorate, never a
 #' parameter value, so give function-valued parameters by name:
-#' `on_call(hook = my_hook)`.
+#' `on_call(hook = my_hook)`. If the first argument is not a function, it is
+#' taken as the first parameter, so `retry(5)` means `retry(times = 5)`.
 #'
 #' If your decorator stores the result of `f(...)` before returning it, use
 #' `withVisible()` to keep functions that return `invisible()` quiet.
@@ -30,7 +34,8 @@
 #' function the formals of the function it returns, which lets it change the
 #' signature (see `vignette("partial-decorators")`).
 #'
-#' @param wrapper A function, as described above.
+#' @param wrapper A function, as described above. Its first argument receives
+#'   the function to decorate, so it can't have a default.
 #' @param name Name shown when printing the decorator and in
 #'   [decorators()]. By default it is taken from how the decorator is written
 #'   when applied with `%@%` (`timed %@% f` gives `"timed"`, and
@@ -90,10 +95,27 @@ decorator <- function(
   if (!is.function(wrapper)) {
     stop("`wrapper` must be a function.", call. = FALSE)
   }
-  fmls <- names(formals(wrapper))
+  wrapper_formals <- formals(wrapper)
+  fmls <- names(wrapper_formals)
   if (length(fmls) == 0L || identical(fmls[[1L]], "...")) {
     stop(
       "`wrapper` must take the function to decorate as its first argument.",
+      call. = FALSE
+    )
+  }
+  # The caller always supplies the function to decorate, so a default on the
+  # first argument means a parameter was put in the wrong place.
+  # (An empty default is the empty symbol, which can't be stored in a variable.)
+  if (nzchar(as.character(wrapper_formals[1L]))) {
+    stop(
+      sprintf(
+        paste(
+          "The first argument of `wrapper` receives the function to decorate,",
+          "so `%s` can't have a default.",
+          "Put decorator parameters after it, e.g. `function(f, param = ...)`."
+        ),
+        fmls[[1L]]
+      ),
       call. = FALSE
     )
   }
@@ -168,6 +190,7 @@ new_decorator <- function(
     }
     .a_new <- new_decorator
     .a_decorate <- decorate_function
+    .a_shift <- shift_args
     .a_wrapper <- wrapper
     .a_style <- style
     .a_params <- params
@@ -193,18 +216,86 @@ clear_body_cache <- function() {
 # is just the dispatch.
 make_body <- function(fn, params) {
   if (length(params) == 0L) {
-    return(dispatch_body(fn, quote(.a_config)))
+    return(with_shift(
+      fn,
+      dispatch_body(fn, quote(.a_config)),
+      quote(.a_params)
+    ))
   }
   cfg <- quote(.a_cfg)
   steps <- lapply(params, function(p) {
     subst(param_template, c(list(.p = as.name(p), .cfg = cfg, .key = p), prims))
   })
-  as.call(c(
+  rest <- as.call(c(
     list(prims$.brace),
     list(as.call(list(prims$.assign, cfg, quote(.a_config)))),
     steps,
     list(dispatch_body(fn, cfg))
   ))
+  with_shift(fn, rest, quote(.a_params))
+}
+
+# A first argument that is not a function is not the function to decorate, so
+# the call is a configuration whose leading arguments are parameters (`test("a")`
+# means `test(foo = "a")`). This check comes before any parameter is read so
+# nothing is evaluated twice.
+with_shift <- function(fn, rest, params, shift_fn = quote(.a_shift)) {
+  fn_sym <- as.name(fn)
+  shift <- subst(
+    shift_template,
+    c(
+      list(
+        .fn = fn_sym,
+        .fname = fn,
+        .shift = shift_fn,
+        .params = params
+      ),
+      prims
+    )
+  )
+  subst(
+    needs_shift_template,
+    c(list(.fn = fn_sym, .shift_call = shift, .rest = rest), prims)
+  )
+}
+
+# Re-runs the call with an empty first argument, so `f` is missing and R's own
+# matching hands the remaining arguments to the parameters.
+shift_args <- function(cl, value, fname, self, env, params) {
+  args <- as.list(cl)[-1L]
+  arg_names <- names(args) %||% character(length(args))
+  named <- arg_names[nzchar(arg_names)]
+  pos <- if (any(startsWith(fname, named))) {
+    NA_integer_
+  } else {
+    match("", arg_names)
+  }
+  if (length(params) == 0L || is.na(pos)) {
+    stop(
+      if (length(params) == 0L) {
+        sprintf("`%s` must be a function.", fname)
+      } else {
+        sprintf(
+          "`%s` must be a function. Name decorator parameters, e.g. `%s(%s = ...)`.",
+          fname,
+          as.character(cl[[1L]])[[1L]],
+          params[[1L]]
+        )
+      },
+      call. = FALSE
+    )
+  }
+  # The value was evaluated already; reuse it, quoting code so it stays data.
+  args[pos] <- list(if (is.language(value)) call("quote", value) else value)
+  # Report errors against the user's call, not the rebuilt one.
+  tryCatch(
+    eval(as.call(c(list(self, quote(expr = )), args)), env),
+    error = function(e) {
+      cond <- list(message = e$message, call = cl)
+      class(cond) <- c("error", "condition")
+      stop(cond)
+    }
+  )
 }
 
 # With a function: decorate it. Without: return a configured decorator.
@@ -261,12 +352,13 @@ literal_body <- function(
       prims
     )
   )
-  as.call(c(
+  rest <- as.call(c(
     list(prims$.brace),
     list(as.call(list(prims$.assign, cfg, config))),
     steps,
     list(dispatch)
   ))
+  with_shift(nms[[1L]], rest, params, shift_args)
 }
 
 decorator_class <- c("adorn_decorator", "function")
@@ -291,7 +383,20 @@ dispatch_template <- quote(
   )
 )
 
+shift_template <- quote(
+  .shift(.sys_call(), .fn, .fname, .sys_function(), .parent_frame(), .params)
+)
+
+needs_shift_template <- quote(
+  .if(.and(.not(.missing(.fn)), .not(.is_function(.fn))), .shift_call, .rest)
+)
+
 prims <- list(
+  .and = `&&`,
+  .is_function = is.function,
+  .sys_call = sys.call,
+  .sys_function = sys.function,
+  .parent_frame = parent.frame,
   .if = `if`,
   .not = `!`,
   .missing = missing,
