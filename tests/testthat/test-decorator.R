@@ -364,3 +364,78 @@ test_that("avoid_all() returns a name that is not taken", {
   expect_equal(avoid_all("x", c("x", ".x")), "..x")
   expect_equal(avoid_all("x", c("x", ".x", "..x")), "...x")
 })
+
+test_that("parameters named like the decorator's own internals do not shadow them", {
+  # `name`, `style`, `config`, `wrapper`, `params` are all variables of the
+  # decorator's environment; none may be read in place of the real one.
+  dec <- decorator(function(
+    f, ..., name = "n", style = "s", config = "c", wrapper = "w", params = "p"
+  ) {
+    paste(name, style, config, wrapper, params)
+  })
+  g <- dec(name = 1, config = 3) %@% function() 0
+  expect_equal(g(), "1 s 3 w p")
+  expect_equal(decorators(g), "dec")
+  h <- dec(wrapper = "W")
+  expect_equal((h %@% function() 0)(), "n s c W p")
+})
+
+test_that("parameters starting with .a_ use the literal body and still work", {
+  dec <- decorator(function(f, ..., .a_new = 1, .a_cfg = 2) .a_new + .a_cfg)
+  g <- dec(.a_new = 10) %@% function() 0
+  expect_equal(g(), 12)
+  expect_equal(names(formals(dec)), c("f", ".a_new", ".a_cfg"))
+})
+
+test_that("decorators with the same formals share a body and stay independent", {
+  one <- decorator(function(f, ..., n = 1) f(...) + n)
+  two <- decorator(function(f, ..., n = 100) f(...) + n)
+  expect_identical(body(one), body(two))
+  add <- function(a, b) a + b
+  expect_equal((one %@% add)(1, 2), 4)
+  expect_equal((two %@% add)(1, 2), 103)
+  expect_equal((one(n = 5) %@% add)(1, 2), 8)
+  expect_equal((two %@% add)(1, 2), 103)
+})
+
+test_that("function-valued parameters named like base functions do not shadow them", {
+  dec <- decorator(function(f, ..., list = NULL, missing = NULL) {
+    if (is.null(list)) f(...) else list(f(...))
+  })
+  g <- dec(list = function(x) x * 10) %@% function() 1
+  expect_equal(g(), 10)
+  h <- dec(missing = function(x) x) %@% function() 2
+  expect_equal(h(), 2)
+  # Same through the literal body, used when a name starts with `.a_`.
+  dec2 <- decorator(function(f, ..., list = NULL, .a_x = 0) {
+    if (is.null(list)) f(...) else list(f(...))
+  })
+  expect_equal((dec2(list = function(x) x * 10) %@% function() 1)(), 10)
+})
+
+test_that("function-valued parameters named like syntax do not shadow the body", {
+  for (p in c("if", "{", "<-", "!", "[<-", "list", "missing", "c")) {
+    w <- as.function(c(alist(f = , ... = ), setNames(list(NULL), p), quote(f(...))))
+    dec <- decorator(w)
+    g <- do.call(dec, setNames(list(function(x) x), p)) %@% function() 1
+    expect_equal(g(), 1, info = p)
+  }
+})
+
+test_that("the body cache is reused and can be cleared", {
+  clear_body_cache <- getFromNamespace("clear_body_cache", "adorn")
+  cache <- getFromNamespace("body_cache", "adorn")
+  clear_body_cache()
+  expect_length(ls(cache, all.names = TRUE), 0L)
+  d1 <- decorator(function(f, ..., n = 1) f(...))
+  d2 <- decorator(function(f, ..., n = 2) f(...))
+  d3 <- decorator(function(f, ..., k = 1) f(...))
+  expect_length(ls(cache, all.names = TRUE), 2L) # `f, n` is shared by d1 and d2
+  clear_body_cache()
+  expect_length(ls(cache, all.names = TRUE), 0L)
+  # Decorators made before clearing keep working, and the cache refills.
+  add <- function(a, b) a + b
+  expect_equal((d1 %@% add)(1, 2), 3)
+  expect_equal((d1(n = 9) %@% add)(1, 2), 3)
+  expect_length(ls(cache, all.names = TRUE), 1L)
+})

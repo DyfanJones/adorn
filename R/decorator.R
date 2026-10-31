@@ -79,7 +79,7 @@
 decorator <- function(
   wrapper,
   name = NULL,
-  formals = formals_choices
+  formals = c("keep", "replace")
 ) {
   # `match.arg()` is slow, so it is only used for a value the user gave.
   formals_mode <- if (identical(formals, formals_choices)) {
@@ -134,8 +134,8 @@ new_decorator <- function(
   formals_mode = "keep"
 ) {
   # The decorator takes the wrapper's own formals (minus any `...`), so
-  # `args()` and code completion show how to use it. Built once here; the
-  # decorated function's hot path is untouched.
+  # `args()` and code completion show how to use it. The decorated function's
+  # hot path is untouched.
   fmls <- formals(wrapper)
   fmls <- fmls[c(1L, match(params, names(fmls)))]
   fmls[1L] <- list(quote(expr = ))
@@ -144,41 +144,129 @@ new_decorator <- function(
       if (is.language(v)) call("quote", v) else v
     })
   }
-  fn_sym <- as.name(names(fmls)[[1L]])
-  # Local variable holding the configuration; must not collide with a param.
-  cfg <- as.name(avoid_all(".config", names(fmls)))
-  # Everything the body needs is embedded as a literal, so a parameter named
-  # `name`, `style`, ... cannot shadow it.
-  steps <- lapply(params, function(p) {
-    subst(
-      param_template,
-      list(.p = as.name(p), .cfg = cfg, .key = p)
+  nms <- names(fmls)
+
+  if (any(startsWith(nms, ".a_"))) {
+    # Rare: a parameter could shadow the internal `.a_` names, so embed
+    # everything the body needs as literals instead.
+    body <- literal_body(
+      nms,
+      wrapper,
+      style,
+      params,
+      config,
+      name,
+      formals_mode
     )
-  })
-  # With a function: decorate it. Without: return a configured decorator.
-  dispatch <- subst(
-    dispatch_template,
-    list(
-      .fn = fn_sym,
-      .cfg = cfg,
-      .new = new_decorator,
-      .decorate = decorate_function,
-      .wrapper = wrapper,
-      .style = style,
-      .params = params,
-      .name = name,
-      .formals_mode = formals_mode
-    )
-  )
-  body <- as.call(c(
-    list(as.name("{")),
-    list(call("<-", cfg, config)),
-    steps,
-    list(dispatch)
-  ))
+  } else {
+    # The body depends only on the names, so it is built once per set of names
+    # and reused. Its values are read from the variables below.
+    key <- paste(nms, collapse = "\r")
+    body <- body_cache[[key]]
+    if (is.null(body)) {
+      body <- body_cache[[key]] <- make_body(nms[[1L]], params)
+    }
+    .a_new <- new_decorator
+    .a_decorate <- decorate_function
+    .a_wrapper <- wrapper
+    .a_style <- style
+    .a_params <- params
+    .a_name <- name
+    .a_formals_mode <- formals_mode
+    .a_config <- config
+  }
   self <- as.function(c(fmls, list(body)), envir = environment())
   class(self) <- decorator_class
   self
+}
+
+# Cache of decorator bodies, keyed by the decorator's formal names.
+body_cache <- new.env(parent = emptyenv())
+
+clear_body_cache <- function() {
+  rm(list = ls(body_cache, all.names = TRUE), envir = body_cache)
+  invisible()
+}
+
+# Body that reads its values from `.a_` variables in the decorator's
+# environment. With no parameters the configuration never changes, so the body
+# is just the dispatch.
+make_body <- function(fn, params) {
+  if (length(params) == 0L) {
+    return(dispatch_body(fn, quote(.a_config)))
+  }
+  cfg <- quote(.a_cfg)
+  steps <- lapply(params, function(p) {
+    subst(param_template, c(list(.p = as.name(p), .cfg = cfg, .key = p), prims))
+  })
+  as.call(c(
+    list(prims$.brace),
+    list(as.call(list(prims$.assign, cfg, quote(.a_config)))),
+    steps,
+    list(dispatch_body(fn, cfg))
+  ))
+}
+
+# With a function: decorate it. Without: return a configured decorator.
+dispatch_body <- function(fn, cfg) {
+  subst(
+    dispatch_template,
+    c(
+      list(
+        .fn = as.name(fn),
+        .cfg = cfg,
+        .new = quote(.a_new),
+        .decorate = quote(.a_decorate),
+        .wrapper = quote(.a_wrapper),
+        .style = quote(.a_style),
+        .params = quote(.a_params),
+        .name = quote(.a_name),
+        .formals_mode = quote(.a_formals_mode)
+      ),
+      prims
+    )
+  )
+}
+
+# Same body with every value embedded as a literal, so no parameter name can
+# shadow it. Slower to build, so only used when a name could collide.
+literal_body <- function(
+  nms,
+  wrapper,
+  style,
+  params,
+  config,
+  name,
+  formals_mode
+) {
+  # Local variable holding the configuration; must not collide with a param.
+  cfg <- as.name(avoid_all(".config", nms))
+  steps <- lapply(params, function(p) {
+    subst(param_template, c(list(.p = as.name(p), .cfg = cfg, .key = p), prims))
+  })
+  dispatch <- subst(
+    dispatch_template,
+    c(
+      list(
+        .fn = as.name(nms[[1L]]),
+        .cfg = cfg,
+        .new = new_decorator,
+        .decorate = decorate_function,
+        .wrapper = wrapper,
+        .style = style,
+        .params = params,
+        .name = name,
+        .formals_mode = formals_mode
+      ),
+      prims
+    )
+  )
+  as.call(c(
+    list(prims$.brace),
+    list(as.call(list(prims$.assign, cfg, config))),
+    steps,
+    list(dispatch)
+  ))
 }
 
 decorator_class <- c("adorn_decorator", "function")
@@ -186,13 +274,32 @@ formals_choices <- c("keep", "replace")
 
 # Templates for the body of a decorator; `subst()` fills in the `.name`
 # placeholders. `substitute()` is far cheaper than `bquote()`.
-param_template <- quote(if (!missing(.p)) .cfg[.key] <- list(.p))
+#
+# The body never looks up a function by name: `if`, `{`, `<-`, `!` and the rest
+# are embedded as the functions themselves (the `prims` below). The body runs
+# in the same frame as the decorator's parameters, so a parameter holding a
+# function and named `if` or `list` would otherwise be called instead.
+param_template <- quote(
+  .if(.not(.missing(.p)), .assign(.cfg, .set_config(.cfg, .key, .p)))
+)
 
 dispatch_template <- quote(
-  if (missing(.fn)) {
-    .new(.wrapper, .style, .params, .cfg, .name, .formals_mode)
-  } else {
+  .if(
+    .missing(.fn),
+    .new(.wrapper, .style, .params, .cfg, .name, .formals_mode),
     .decorate(.fn, .wrapper, .style, .cfg, .name, .formals_mode)
+  )
+)
+
+prims <- list(
+  .if = `if`,
+  .not = `!`,
+  .missing = missing,
+  .assign = `<-`,
+  .brace = `{`,
+  .set_config = function(config, key, value) {
+    config[key] <- list(value)
+    config
   }
 )
 
